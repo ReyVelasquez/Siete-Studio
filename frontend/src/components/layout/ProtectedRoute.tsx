@@ -3,7 +3,15 @@ import { Navigate, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
-export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  allowUnverified?: boolean;
+}
+
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
+  allowUnverified = false,
+}) => {
   const { user, loading } = useAuth();
   const location = useLocation();
 
@@ -20,6 +28,10 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
 
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (!allowUnverified && !user.emailVerified) {
+    return <Navigate to="/verify-email" replace />;
   }
 
   return <>{children}</>;

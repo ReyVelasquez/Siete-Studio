@@ -7,7 +7,10 @@ Plataforma web full-stack modular para gestión de ventas, recepción pública d
 ## 1. Stack Tecnológico
 
 - **Frontend (`/frontend`):** React 18, TypeScript, Vite, Tailwind CSS, Framer Motion, Lucide React, React Router DOM, React Hook Form + Zod, Firebase Web SDK.
-- **Backend (`/backend`):** Python 3.11+, FastAPI, Pydantic v2, Uvicorn, `firebase-admin` (verificación JWT, Firestore y Firebase Storage).
+- **Backend (`/backend`):** Python 3.11+, FastAPI, Pydantic v2, SQLAlchemy 2.0, `psycopg` (PostgreSQL), Uvicorn, `firebase-admin` (verificación JWT, creación/restauración de usuarios y Storage).
+- **Base de Datos Relacional (`/database` y `/docs`):** PostgreSQL en 3FN con 9 tablas normalizadas, llaves foráneas (`ON DELETE RESTRICT` / `CASCADE` / `SET NULL`), restricciones `CHECK` y triggers de auditoría (ver [`docs/MODELO_BASE_DE_DATOS.md`](docs/MODELO_BASE_DE_DATOS.md) y [`database/schema_postgresql.sql`](database/schema_postgresql.sql)). Incluye respaldo local automático con SQLite (`PRAGMA foreign_keys=ON`) si aún no tienes PostgreSQL corriendo.
+- **Módulo Completo de Autenticación:** Inicio de sesión con Email/Password y Google OAuth, **confirmación de correo (`/verify-email`)**, **recuperación de contraseña por email (`/forgot-password`)**, **cambio de contraseña en sesión de usuario (`/dashboard/profile`)** y **restauración de contraseña desde sesión de administrador (`/dashboard/users`)**.
+- **Módulos CRUD Completos:** Pedidos (`/dashboard/orders`), Catálogo de Materiales (`/dashboard/materials`) y Usuarios/Roles (`/dashboard/users`) con validaciones Zod + Pydantic + SGBD y mensajes de error/confirmación.
 - **Identidad Visual:** Paleta **monocromática Cobalt-Slate** con soporte **Modo Claro / Modo Oscuro** (contraste WCAG AA), bordes tipo línea de corte (*die-cut dashed borders*), badges tipo pegatina (*sticker badges*), efecto *sticker peel hover* y Design Tokens 100% centralizados.
 
 ---
@@ -198,6 +201,22 @@ VITE_FIREBASE_STORAGE_BUCKET=tu-proyecto.firebasestorage.app
 VITE_FIREBASE_MESSAGING_SENDER_ID=123456789012
 VITE_FIREBASE_APP_ID=1:123456789012:web:abcdef123456
 ```
+
+---
+
+### Configuración de PostgreSQL (SGBD Relacional)
+
+1. Crea la base de datos en PostgreSQL (`psql` o **pgAdmin 4**):
+   ```powershell
+   createdb -U postgres siete_studio
+   psql -U postgres -d siete_studio -f database/schema_postgresql.sql
+   psql -U postgres -d siete_studio -f database/seed.sql
+   ```
+2. Actualiza `DATABASE_URL` en `backend/.env`:
+   ```env
+   DATABASE_URL=postgresql+psycopg://postgres:TU_PASSWORD@localhost:5432/siete_studio
+   ```
+   *(Mientras no configures PostgreSQL, el sistema funciona inmediatamente con SQLite relacional `sqlite:///./siete_studio.db` aplicando `PRAGMA foreign_keys=ON` y las mismas restricciones `CHECK`/`UNIQUE`.)*
 
 ---
 

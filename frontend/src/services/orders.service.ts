@@ -137,6 +137,13 @@ export const ordersService = {
     });
   },
 
+  async deleteOrder(orderId: string): Promise<void> {
+    await apiRequest<void>(`/admin/orders/${orderId}`, {
+      method: "DELETE",
+      requireAuth: true,
+    });
+  },
+
   async fetchOrderImageObjectUrl(orderId: string): Promise<string> {
     const { blob } = await apiFetchBlob(`/admin/orders/${orderId}/image`, {
       requireAuth: true,

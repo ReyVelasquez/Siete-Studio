@@ -1,4 +1,4 @@
-"""Authentication dependencies and HTTP security middleware."""
+"""Authentication dependencies (Firebase JWT + PostgreSQL RBAC sync) and HTTP security middleware."""
 
 from __future__ import annotations
 
@@ -8,9 +8,12 @@ from typing import Optional
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.firebase import FirebaseNotConfiguredError, verify_firebase_id_token
+from app.db.database import get_db
+from app.services.user_service import user_service
 
 logger = logging.getLogger(__name__)
 
@@ -18,19 +21,23 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 class AuthenticatedUser(BaseModel):
-    """Represents a verified Firebase user extracted from the JWT token."""
+    """Represents a verified Firebase user synced with PostgreSQL RBAC role."""
 
     uid: str
+    db_user_id: Optional[int] = None
     email: Optional[str] = None
     name: Optional[str] = None
+    role: str = "operador"
     email_verified: bool = False
+    is_active: bool = True
     sign_in_provider: Optional[str] = None
 
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
 ) -> AuthenticatedUser:
-    """FastAPI dependency enforcing valid Firebase JWT authentication."""
+    """FastAPI dependency enforcing valid Firebase JWT authentication and SQL user sync."""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -62,14 +69,35 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
-    firebase_meta = decoded.get("firebase", {})
+    db_user = user_service.sync_firebase_user(db, decoded)
+    if not db_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tu cuenta ha sido desactivada por un administrador.",
+        )
+
     return AuthenticatedUser(
-        uid=decoded["uid"],
-        email=decoded.get("email"),
-        name=decoded.get("name"),
-        email_verified=bool(decoded.get("email_verified", False)),
-        sign_in_provider=firebase_meta.get("sign_in_provider"),
+        uid=db_user.firebase_uid,
+        db_user_id=db_user.id,
+        email=db_user.email,
+        name=db_user.display_name,
+        role=db_user.role.code,
+        email_verified=bool(db_user.email_verified),
+        is_active=bool(db_user.is_active),
+        sign_in_provider=db_user.auth_provider,
     )
+
+
+async def require_admin(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
+    """RBAC dependency restricting administrative endpoints strictly to `admin` role."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permisos insuficientes. Esta operación requiere rol de Administrador.",
+        )
+    return current_user
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

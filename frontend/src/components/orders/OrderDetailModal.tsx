@@ -5,10 +5,12 @@ import {
   CalendarClock,
   Download,
   ExternalLink,
+  History,
   Image as ImageIcon,
   Loader2,
   MessageCircle,
   Save,
+  Trash2,
   Wallet,
 } from "lucide-react";
 import { THEME_CONFIG, formatCurrency } from "@/config/theme.config";
@@ -27,17 +29,21 @@ interface OrderDetailModalProps {
   order: OrderItem | null;
   onClose: () => void;
   onUpdated: (updatedOrder: OrderItem) => void;
+  onDeleted?: (orderId: string) => void;
 }
 
 export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   order,
   onClose,
   onUpdated,
+  onDeleted,
 }) => {
   const { pushToast } = useToast();
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loadingImage, setLoadingImage] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const {
     register,
@@ -51,6 +57,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 
   useEffect(() => {
     if (!order) return;
+    setConfirmDelete(false);
     reset({
       total_price: order.total_price,
       advance_payment: order.advance_payment,
@@ -138,6 +145,28 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
         description: err instanceof Error ? err.message : "Intenta nuevamente.",
         variant: "error",
       });
+    }
+  };
+
+  const handleDeleteOrder = async () => {
+    setDeleting(true);
+    try {
+      await ordersService.deleteOrder(order.id);
+      pushToast({
+        title: `Pedido ${order.order_number} eliminado`,
+        description: "Registro e imagen asociados eliminados correctamente.",
+        variant: "success",
+      });
+      onDeleted?.(order.id);
+      onClose();
+    } catch (err) {
+      pushToast({
+        title: "No se pudo eliminar el pedido",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "error",
+      });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -357,17 +386,94 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             )}
           </div>
 
-          <div className="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              loading={isSubmitting}
-              leftIcon={<Save className="h-4 w-4" />}
-            >
-              Guardar cambios
-            </Button>
+          {/* Relational Audit Trail: Status History & Payments */}
+          {((order.status_history && order.status_history.length > 0) ||
+            (order.payments && order.payments.length > 0)) && (
+            <div className="rounded-xl border border-line-subtle bg-surface-elevated/50 p-4 text-xs">
+              <div className="mb-2.5 flex items-center gap-1.5 font-bold uppercase tracking-wider text-ink-secondary">
+                <History className="h-3.5 w-3.5 text-accent" />
+                <span>Bitácora Relacional (Estados y Abonos)</span>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {order.status_history && order.status_history.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {order.status_history.slice(0, 4).map((h) => (
+                      <li key={h.id} className="rounded bg-surface-card px-2.5 py-1.5">
+                        <span className="font-bold text-ink-primary">{h.new_status}</span>
+                        <span className="block font-mono text-[10px] text-ink-muted">
+                          {formatDateTime(h.changed_at)} · {h.changed_by || "Sistema"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {order.payments && order.payments.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {order.payments.slice(0, 4).map((p) => (
+                      <li key={p.id} className="rounded bg-surface-card px-2.5 py-1.5">
+                        <span className="font-mono font-bold text-accent">
+                          +{formatCurrency(p.amount)} ({p.payment_method})
+                        </span>
+                        <span className="block font-mono text-[10px] text-ink-muted">
+                          {formatDateTime(p.recorded_at)} · {p.recorded_by || "Sistema"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Actions bar including CRUD Delete with two-step confirmation */}
+          <div className="flex flex-col gap-3 border-t border-line-subtle pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              {confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="inverted"
+                    loading={deleting}
+                    onClick={handleDeleteOrder}
+                    leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+                  >
+                    Confirmar borrado
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setConfirmDelete(false)}
+                  >
+                    No
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setConfirmDelete(true)}
+                  leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+                >
+                  Eliminar pedido
+                </Button>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse gap-2.5 sm:flex-row">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                loading={isSubmitting}
+                leftIcon={<Save className="h-4 w-4" />}
+              >
+                Guardar cambios
+              </Button>
+            </div>
           </div>
         </form>
       </div>

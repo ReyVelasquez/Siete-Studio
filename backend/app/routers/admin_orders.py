@@ -1,4 +1,4 @@
-"""Protected administrative endpoints for order management, sales control, and artwork download."""
+"""Protected administrative endpoints for full order CRUD, sales control, and artwork download."""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 
 from app.core.file_security import validate_and_prepare_image
 from app.core.security import AuthenticatedUser, get_current_user
+from app.db.database import get_db
 from app.schemas.order import (
     AdminQuickOrderCreateInput,
     OrderListResponse,
@@ -49,8 +51,10 @@ async def list_admin_orders(
     only_pending: bool = Query(default=False),
     delivery_date: Optional[date] = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
 ) -> OrderListResponse:
     return order_service.list_orders(
+        db,
         status_filter=status_filter,
         material_filter=material,
         shape_filter=shape,
@@ -84,6 +88,7 @@ async def create_admin_quick_order(
     notes: Optional[str] = Form(default=None),
     image: UploadFile = File(...),
     current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> OrderResponse:
     try:
         validated_payload = AdminQuickOrderCreateInput(
@@ -104,30 +109,47 @@ async def create_admin_quick_order(
         )
     except ValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=_format_validation_error(exc),
         ) from exc
 
     validated_image = await validate_and_prepare_image(image)
-    return order_service.create_admin_order(validated_payload, validated_image, current_user)
+    return order_service.create_admin_order(db, validated_payload, validated_image, current_user)
 
 
 @router.get("/{order_id}", response_model=OrderResponse, summary="Obtener detalle de pedido")
-async def get_admin_order(order_id: str) -> OrderResponse:
-    return order_service.get_order_by_id(order_id)
+async def get_admin_order(
+    order_id: str,
+    db: Session = Depends(get_db),
+) -> OrderResponse:
+    return order_service.get_order_by_id(db, order_id)
 
 
 @router.patch(
     "/{order_id}",
     response_model=OrderResponse,
-    summary="Actualizar ventas, pagos y estado de un pedido",
+    summary="Actualizar datos, ventas, pagos y estado de un pedido",
 )
 async def update_admin_order_sales(
     order_id: str,
     payload: OrderSalesUpdateInput,
     current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> OrderResponse:
-    return order_service.update_order_sales(order_id, payload, current_user)
+    return order_service.update_order_sales(db, order_id, payload, current_user)
+
+
+@router.delete(
+    "/{order_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar un pedido (ON DELETE CASCADE en imagen, historial y pagos)",
+)
+async def delete_admin_order(
+    order_id: str,
+    db: Session = Depends(get_db),
+) -> Response:
+    order_service.delete_order(db, order_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(
@@ -137,8 +159,9 @@ async def update_admin_order_sales(
 async def download_order_image(
     order_id: str,
     download: bool = Query(default=False),
+    db: Session = Depends(get_db),
 ) -> Response:
-    order = order_service.get_order_by_id(order_id)
+    order = order_service.get_order_by_id(db, order_id)
     if not order.image.storage_path:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

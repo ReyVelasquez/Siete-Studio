@@ -9,9 +9,13 @@ import { ToastProvider } from "@/hooks/useToast";
 import { DashboardHomePage } from "@/pages/DashboardHomePage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { MaterialsCatalogPage } from "@/pages/MaterialsCatalogPage";
 import { OrdersManagementPage } from "@/pages/OrdersManagementPage";
+import { ProfileSecurityPage } from "@/pages/ProfileSecurityPage";
 import { PublicOrderPage } from "@/pages/PublicOrderPage";
 import { RegisterPage } from "@/pages/RegisterPage";
+import { UsersManagementPage } from "@/pages/UsersManagementPage";
+import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
 
 export const App: React.FC = () => {
   return (
@@ -23,12 +27,20 @@ export const App: React.FC = () => {
               {/* Public Storefront & Order Intake */}
               <Route path="/" element={<PublicOrderPage />} />
 
-              {/* Authentication Routes */}
+              {/* Authentication & Email Verification Routes */}
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route
+                path="/verify-email"
+                element={
+                  <ProtectedRoute allowUnverified>
+                    <VerifyEmailPage />
+                  </ProtectedRoute>
+                }
+              />
 
-              {/* Protected Internal Admin & Sales Dashboard */}
+              {/* Protected Internal Admin, CRUD & Security Dashboard */}
               <Route
                 path="/dashboard"
                 element={
@@ -39,6 +51,9 @@ export const App: React.FC = () => {
               >
                 <Route index element={<DashboardHomePage />} />
                 <Route path="orders" element={<OrdersManagementPage />} />
+                <Route path="materials" element={<MaterialsCatalogPage />} />
+                <Route path="users" element={<UsersManagementPage />} />
+                <Route path="profile" element={<ProfileSecurityPage />} />
               </Route>
 
               {/* Fallback */}

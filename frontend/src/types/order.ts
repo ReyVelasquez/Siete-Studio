@@ -52,12 +52,30 @@ export interface PublicOrderConfirmation {
   message: string;
 }
 
+export interface OrderStatusHistoryItem {
+  id: number;
+  previous_status: string | null;
+  new_status: string;
+  changed_by: string | null;
+  comment: string | null;
+  changed_at: string;
+}
+
+export interface OrderPaymentItem {
+  id: number;
+  amount: number;
+  payment_method: string;
+  recorded_by: string | null;
+  reference: string | null;
+  recorded_at: string;
+}
+
 export interface OrderItem {
   id: string;
   order_number: string;
   referral_name: string;
   phone: string;
-  material: StickerMaterial;
+  material: string;
   vinyl_gloss_mode: VinylGlossMode | null;
   shape: StickerShape;
   diameter_cm: number | null;
@@ -76,6 +94,54 @@ export interface OrderItem {
   source: string;
   updated_at: string | null;
   updated_by: string | null;
+  status_history?: OrderStatusHistoryItem[];
+  payments?: OrderPaymentItem[];
+}
+
+export type UserRoleCode = "admin" | "operador" | "cliente";
+
+export interface UserProfile {
+  id: number;
+  firebase_uid: string;
+  email: string;
+  display_name: string;
+  role: UserRoleCode;
+  role_name: string;
+  email_verified: boolean;
+  is_active: boolean;
+  auth_provider: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserListResponse {
+  items: UserProfile[];
+  total: number;
+}
+
+export interface AdminRestorePasswordResponse {
+  user_id: number;
+  email: string;
+  mode: "temporary_password" | "reset_link";
+  message: string;
+  reset_link: string | null;
+}
+
+export interface MaterialItem {
+  id: number;
+  name: string;
+  description: string | null;
+  requires_gloss_mode: boolean;
+  base_unit_price: number;
+  is_active: boolean;
+  orders_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialListResponse {
+  items: MaterialItem[];
+  total: number;
 }
 
 export interface OrderListResponse {

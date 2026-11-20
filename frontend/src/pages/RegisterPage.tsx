@@ -31,15 +31,19 @@ export const RegisterPage: React.FC = () => {
   });
 
   if (user) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={user.emailVerified ? "/dashboard" : "/verify-email"} replace />;
   }
 
   const onSubmit = async (values: RegisterFormValues) => {
     setAuthError(null);
     try {
       await registerWithEmail(values.displayName, values.email, values.password);
-      pushToast({ title: "Cuenta creada correctamente", variant: "success" });
-      navigate("/dashboard", { replace: true });
+      pushToast({
+        title: "Cuenta creada · Confirmación enviada",
+        description: `Enviamos un enlace de verificación a ${values.email}.`,
+        variant: "success",
+      });
+      navigate("/verify-email", { replace: true });
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : "No se pudo crear la cuenta.");
     }

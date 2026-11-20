@@ -105,6 +105,9 @@ export const DashboardHomePage: React.FC = () => {
         onUpdated={() => {
           void loadSummary();
         }}
+        onDeleted={() => {
+          void loadSummary();
+        }}
       />
 
       <QuickOrderModal

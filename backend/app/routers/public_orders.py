@@ -6,9 +6,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 
 from app.core.file_security import validate_and_prepare_image
 from app.core.rate_limit import enforce_public_order_rate_limit
+from app.db.database import get_db
 from app.schemas.order import OrderCreateInput, PublicOrderConfirmation
 from app.services.order_service import order_service
 
@@ -19,7 +21,6 @@ def _format_validation_error(exc: ValidationError) -> str:
     messages = []
     for err in exc.errors():
         msg = err.get("msg", "Valor inválido")
-        # Strip Pydantic's "Value error, " prefix for clean user-facing Spanish errors
         if msg.startswith("Value error, "):
             msg = msg[len("Value error, ") :]
         messages.append(msg)
@@ -44,12 +45,8 @@ async def create_public_order(
     quantity: int = Form(...),
     delivery_datetime: str = Form(...),
     image: UploadFile = File(...),
+    db: Session = Depends(get_db),
 ) -> PublicOrderConfirmation:
-    """
-    Validate customer specs with strict Pydantic v2 business rules,
-    inspect image binary magic bytes & size, upload with UUID filename,
-    and persist in Firestore with server-generated reception timestamp.
-    """
     try:
         validated_payload = OrderCreateInput(
             referral_name=referral_name,
@@ -64,9 +61,9 @@ async def create_public_order(
         )
     except ValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=_format_validation_error(exc),
         ) from exc
 
     validated_image = await validate_and_prepare_image(image)
-    return order_service.create_public_order(validated_payload, validated_image)
+    return order_service.create_public_order(db, validated_payload, validated_image)

@@ -10,6 +10,9 @@ serviceAccountKey.json
 backend/.venv/
 backend/venv/
 backend/uploads/
+*.db
+*.sqlite
+*.sqlite3
 **/__pycache__/
 **/*.py[cod]
 **/.pytest_cache/

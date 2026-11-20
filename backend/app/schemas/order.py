@@ -233,16 +233,26 @@ class AdminQuickOrderCreateInput(OrderCreateInput):
 
 
 class OrderSalesUpdateInput(BaseModel):
-    """Schema for updating sales control, payment tracking and production status."""
+    """Schema for updating order specs, sales control, payment tracking and production status."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
+    referral_name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    phone: Optional[str] = Field(default=None, min_length=7, max_length=25)
+    quantity: Optional[int] = Field(default=None, ge=1, le=1_000_000)
     total_price: Optional[float] = Field(default=None, ge=0, le=10_000_000)
     advance_payment: Optional[float] = Field(default=None, ge=0, le=10_000_000)
     payment_method: Optional[PaymentMethod] = None
     status: Optional[OrderStatus] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
     delivery_datetime: Optional[datetime] = None
+
+    @field_validator("phone")
+    @classmethod
+    def check_optional_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return normalize_phone(v)
 
     @field_validator("delivery_datetime")
     @classmethod
@@ -260,6 +270,24 @@ class OrderImageInfo(BaseModel):
     size_bytes: int
 
 
+class OrderStatusHistoryItem(BaseModel):
+    id: int
+    previous_status: Optional[str] = None
+    new_status: str
+    changed_by: Optional[str] = None
+    comment: Optional[str] = None
+    changed_at: datetime
+
+
+class OrderPaymentItem(BaseModel):
+    id: int
+    amount: float
+    payment_method: str
+    recorded_by: Optional[str] = None
+    reference: Optional[str] = None
+    recorded_at: datetime
+
+
 class PublicOrderConfirmation(BaseModel):
     """Minimal safe response returned to anonymous public customers upon order creation."""
 
@@ -267,7 +295,7 @@ class PublicOrderConfirmation(BaseModel):
     order_number: str
     referral_name: str
     phone: str
-    material: StickerMaterial
+    material: str
     vinyl_gloss_mode: Optional[VinylGlossMode] = None
     shape: StickerShape
     diameter_cm: Optional[float] = None
@@ -287,7 +315,7 @@ class OrderResponse(BaseModel):
     order_number: str
     referral_name: str
     phone: str
-    material: StickerMaterial
+    material: str
     vinyl_gloss_mode: Optional[VinylGlossMode] = None
     shape: StickerShape
     diameter_cm: Optional[float] = None
@@ -306,6 +334,8 @@ class OrderResponse(BaseModel):
     source: str = "public"
     updated_at: Optional[datetime] = None
     updated_by: Optional[str] = None
+    status_history: List[OrderStatusHistoryItem] = Field(default_factory=list)
+    payments: List[OrderPaymentItem] = Field(default_factory=list)
 
 
 class OrderListResponse(BaseModel):

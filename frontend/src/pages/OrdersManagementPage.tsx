@@ -292,6 +292,7 @@ export const OrdersManagementPage: React.FC = () => {
         order={selectedOrder}
         onClose={() => setSelectedOrder(null)}
         onUpdated={(updated) => replaceOrderLocally(updated)}
+        onDeleted={() => void refetch()}
       />
 
       <QuickOrderModal

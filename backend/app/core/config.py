@@ -34,6 +34,16 @@ class Settings(BaseSettings):
         description="Comma-separated list of allowed CORS origins.",
     )
 
+    # Relational DBMS (PostgreSQL via SQLAlchemy 2.0 + psycopg, or local SQLite fallback)
+    DATABASE_URL: str = Field(
+        default="sqlite:///./siete_studio.db",
+        description="SQLAlchemy database URI (PostgreSQL: postgresql+psycopg://user:pass@host:5432/siete_studio).",
+    )
+    INITIAL_ADMIN_EMAIL: Optional[str] = Field(
+        default=None,
+        description="Email automatically assigned 'admin' role when synced from Firebase Auth.",
+    )
+
     # Firebase Admin credentials (never hardcoded)
     FIREBASE_CREDENTIALS_PATH: Optional[str] = None
     FIREBASE_CREDENTIALS_JSON: Optional[str] = None

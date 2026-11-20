@@ -1,12 +1,16 @@
 import React, { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
+  BadgeCheck,
   ClipboardList,
   ExternalLink,
+  KeyRound,
+  Layers,
   LayoutDashboard,
   LogOut,
   Menu,
   Sparkles,
+  Users,
   X,
 } from "lucide-react";
 import { BrandLogo } from "@/components/ui/BrandLogo";
@@ -14,16 +18,23 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/useToast";
 
-const navItems = [
-  { to: "/dashboard", label: "Resumen & Pendientes", icon: LayoutDashboard, end: true },
-  { to: "/dashboard/orders", label: "Pedidos y Ventas", icon: ClipboardList, end: false },
-];
-
 export const DashboardLayout: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, profile, logout } = useAuth();
   const { pushToast } = useToast();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const isAdmin = profile?.role === "admin";
+
+  const navItems = [
+    { to: "/dashboard", label: "Resumen & Pendientes", icon: LayoutDashboard, end: true },
+    { to: "/dashboard/orders", label: "Pedidos y Ventas", icon: ClipboardList, end: false },
+    { to: "/dashboard/materials", label: "Catálogo Materiales", icon: Layers, end: false },
+    ...(isAdmin
+      ? [{ to: "/dashboard/users", label: "Usuarios y Claves", icon: Users, end: false }]
+      : []),
+    { to: "/dashboard/profile", label: "Mi Perfil y Seguridad", icon: KeyRound, end: false },
+  ];
 
   const handleLogout = async () => {
     await logout();
@@ -31,7 +42,8 @@ export const DashboardLayout: React.FC = () => {
     navigate("/login");
   };
 
-  const userInitial = (user?.displayName || user?.email || "A").slice(0, 1).toUpperCase();
+  const displayName = profile?.display_name || user?.displayName || "Operador Taller";
+  const userInitial = (displayName || user?.email || "A").slice(0, 1).toUpperCase();
 
   return (
     <div className="min-h-screen bg-surface-canvas bg-print-grid">
@@ -43,9 +55,9 @@ export const DashboardLayout: React.FC = () => {
           </Link>
         </div>
 
-        <nav className="flex-1 space-y-1.5 px-3.5 py-5">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3.5 py-5">
           <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-ink-muted">
-            Operación Fase 1
+            Gestión & Seguridad
           </p>
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -81,7 +93,7 @@ export const DashboardLayout: React.FC = () => {
             </Link>
           </div>
 
-          <div className="pt-5">
+          <div className="pt-4">
             <div className="rounded-lg border border-dashed border-line-diecut/60 bg-surface-elevated/70 p-3.5">
               <div className="flex items-center gap-1.5 text-[11px] font-bold text-ink-primary">
                 <Sparkles className="h-3.5 w-3.5 text-accent" />
@@ -100,10 +112,21 @@ export const DashboardLayout: React.FC = () => {
               {userInitial}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-bold text-ink-primary">
-                {user?.displayName || "Operador Taller"}
-              </p>
+              <div className="flex items-center gap-1">
+                <p className="truncate text-xs font-bold text-ink-primary">{displayName}</p>
+                {user?.emailVerified && (
+                  <BadgeCheck
+                    className="h-3.5 w-3.5 shrink-0 text-accent"
+                    aria-label="Correo verificado"
+                  />
+                )}
+              </div>
               <p className="truncate text-[11px] text-ink-muted">{user?.email}</p>
+              {profile && (
+                <span className="mt-1 inline-block rounded bg-accent-soft px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase text-accent">
+                  {profile.role_name}
+                </span>
+              )}
             </div>
           </div>
           <button
@@ -134,7 +157,7 @@ export const DashboardLayout: React.FC = () => {
 
           <div className="hidden items-center gap-2 text-xs font-medium text-ink-muted lg:flex">
             <span className="inline-block h-2 w-2 rounded-full bg-accent" />
-            <span>Panel Interno Seguro · JWT Verificado</span>
+            <span>Panel Interno Seguro · BD Relacional + Firebase Auth</span>
           </div>
 
           <div className="flex items-center gap-2.5">
