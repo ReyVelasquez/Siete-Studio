@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Die-cut sticker base with peeled corner -->
+  <path
+    d="M14 8H50C53.3137 8 56 10.6863 56 14V38L38 56H14C10.6863 56 8 53.3137 8 50V14C8 10.6863 10.6863 8 14 8Z"
+    fill="currentColor"
+    fill-opacity="0.12"
+    stroke="currentColor"
+    stroke-width="3"
+    stroke-linejoin="round"
+  />
+  <!-- Peeled flap triangle -->
+  <path
+    d="M38 56V42C38 39.7909 39.7909 38 42 38H56L38 56Z"
+    fill="currentColor"
+  />
+  <!-- Die-cut registration crosshair inside -->
+  <path
+    d="M21 22H37L27 39"
+    stroke="currentColor"
+    stroke-width="4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>
