@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 from pathlib import Path
@@ -23,6 +25,34 @@ class FirebaseNotConfiguredError(RuntimeError):
     """Raised when Firebase Admin credentials are missing or invalid."""
 
 
+def _parse_firebase_credentials_json(raw_value: str) -> dict[str, Any]:
+    """Parse Firebase service account JSON from plain single-line JSON or Base64-encoded JSON."""
+    cleaned = raw_value.strip()
+    cert_dict: Any = None
+
+    try:
+        cert_dict = json.loads(cleaned)
+    except json.JSONDecodeError:
+        try:
+            decoded = base64.b64decode(cleaned).decode("utf-8")
+            cert_dict = json.loads(decoded)
+        except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise FirebaseNotConfiguredError(
+                "FIREBASE_CREDENTIALS_JSON no contiene un JSON válido (plano ni codificado en Base64)."
+            ) from exc
+
+    if not isinstance(cert_dict, dict):
+        raise FirebaseNotConfiguredError(
+            "FIREBASE_CREDENTIALS_JSON debe decodificarse a un objeto JSON de cuenta de servicio."
+        )
+
+    private_key = cert_dict.get("private_key")
+    if isinstance(private_key, str):
+        cert_dict["private_key"] = private_key.replace("\\n", "\n")
+
+    return cert_dict
+
+
 def initialize_firebase() -> firebase_admin.App:
     """Initialize Firebase Admin SDK once using env-provided credentials."""
     global _firebase_app
@@ -37,15 +67,17 @@ def initialize_firebase() -> firebase_admin.App:
     settings = get_settings()
     cred: Optional[credentials.Base] = None
 
-    if settings.FIREBASE_CREDENTIALS_JSON:
+    if settings.FIREBASE_CREDENTIALS_JSON and settings.FIREBASE_CREDENTIALS_JSON.strip():
         try:
-            cert_dict = json.loads(settings.FIREBASE_CREDENTIALS_JSON)
+            cert_dict = _parse_firebase_credentials_json(settings.FIREBASE_CREDENTIALS_JSON)
             cred = credentials.Certificate(cert_dict)
-        except (json.JSONDecodeError, ValueError) as exc:
+        except FirebaseNotConfiguredError:
+            raise
+        except (ValueError, TypeError) as exc:
             raise FirebaseNotConfiguredError(
-                "FIREBASE_CREDENTIALS_JSON no contiene un JSON de cuenta de servicio válido."
+                "FIREBASE_CREDENTIALS_JSON no contiene una cuenta de servicio de Firebase válida."
             ) from exc
-    elif settings.FIREBASE_CREDENTIALS_PATH:
+    elif settings.FIREBASE_CREDENTIALS_PATH and settings.FIREBASE_CREDENTIALS_PATH.strip():
         raw_path = Path(settings.FIREBASE_CREDENTIALS_PATH)
         cred_path = raw_path if raw_path.is_absolute() else (BACKEND_DIR / raw_path)
         if not cred_path.is_file():

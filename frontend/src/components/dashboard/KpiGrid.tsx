@@ -21,6 +21,7 @@ export const KpiGrid: React.FC<KpiGridProps> = ({ summary, loading }) => {
         : "Cargando cola...",
       icon: Clock,
       emphasis: true,
+      hasAlert: false,
     },
     {
       label: "Entregas para Hoy",
@@ -31,6 +32,7 @@ export const KpiGrid: React.FC<KpiGridProps> = ({ summary, loading }) => {
           : "Sin entregas atrasadas",
       icon: CalendarClock,
       emphasis: false,
+      hasAlert: Boolean(summary && summary.overdue_deliveries_count > 0),
     },
     {
       label: "Ventas del Día",
@@ -40,6 +42,7 @@ export const KpiGrid: React.FC<KpiGridProps> = ({ summary, loading }) => {
         : "Calculando ingresos...",
       icon: Wallet,
       emphasis: false,
+      hasAlert: false,
     },
     {
       label: "Ventas del Mes",
@@ -49,6 +52,7 @@ export const KpiGrid: React.FC<KpiGridProps> = ({ summary, loading }) => {
         : "Resumen mensual...",
       icon: TrendingUp,
       emphasis: false,
+      hasAlert: false,
     },
   ];
 
@@ -65,29 +69,40 @@ export const KpiGrid: React.FC<KpiGridProps> = ({ summary, loading }) => {
           <motion.div key={card.label} variants={staggerItemVariants}>
             <StickerCard
               peel
+              tone={card.emphasis ? "accent" : "default"}
               padding="md"
-              className={
-                card.emphasis
-                  ? "border-brand-600/60 bg-gradient-to-br from-surface-card to-accent-soft/45"
-                  : ""
-              }
             >
-              <div className="flex items-start justify-between">
-                <p className="text-xs font-bold uppercase tracking-wider text-ink-muted">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
                   {card.label}
                 </p>
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-elevated text-accent">
+                <span
+                  aria-hidden="true"
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
+                    card.emphasis
+                      ? "bg-accent text-accent-ink shadow-xs"
+                      : card.hasAlert
+                      ? "bg-state-critical-bg text-state-critical-ink shadow-xs"
+                      : "border border-line-subtle bg-surface-elevated text-accent"
+                  }`}
+                >
                   <Icon className="h-4 w-4" />
                 </span>
               </div>
-              <p className="mt-3 font-mono text-2xl font-extrabold tracking-tight text-ink-primary sm:text-3xl">
+              <p className="mt-3 font-mono text-2xl font-extrabold tabular-nums tracking-tight text-ink-primary sm:text-3xl">
                 {loading ? (
-                  <span className="inline-block h-7 w-24 animate-pulse rounded bg-surface-elevated" />
+                  <span className="inline-block h-8 w-24 animate-pulse rounded-md bg-surface-elevated" />
                 ) : (
                   card.value
                 )}
               </p>
-              <p className="mt-1.5 text-xs text-ink-muted">{card.sub}</p>
+              <p
+                className={`mt-1.5 text-xs ${
+                  card.hasAlert ? "font-semibold text-ink-primary" : "text-ink-muted"
+                }`}
+              >
+                {card.sub}
+              </p>
             </StickerCard>
           </motion.div>
         );

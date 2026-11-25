@@ -15,6 +15,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -94,6 +95,7 @@ class Material(Base):
     )
 
     orders: Mapped[List["Order"]] = relationship("Order", back_populates="material")
+    order_items: Mapped[List["OrderItem"]] = relationship("OrderItem", back_populates="material")
 
 
 class Shape(Base):
@@ -105,6 +107,7 @@ class Shape(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     orders: Mapped[List["Order"]] = relationship("Order", back_populates="shape")
+    order_items: Mapped[List["OrderItem"]] = relationship("OrderItem", back_populates="shape")
 
 
 class Order(Base):
@@ -160,6 +163,9 @@ class Order(Base):
         Integer, ForeignKey("shapes.id", ondelete="RESTRICT"), nullable=False
     )
     diameter_cm: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
+    size_mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    height_cm: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
+    width_cm: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
     dimensions: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     size_display: Mapped[str] = mapped_column(String(50), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -187,6 +193,12 @@ class Order(Base):
     shape: Mapped["Shape"] = relationship("Shape", back_populates="orders")
     image: Mapped[Optional["OrderImage"]] = relationship(
         "OrderImage", back_populates="order", uselist=False, cascade="all, delete-orphan"
+    )
+    items: Mapped[List["OrderItem"]] = relationship(
+        "OrderItem",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderItem.position.asc()",
     )
     status_history: Mapped[List["OrderStatusHistory"]] = relationship(
         "OrderStatusHistory",
@@ -227,6 +239,97 @@ class OrderImage(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     order: Mapped["Order"] = relationship("Order", back_populates="image")
+
+
+class OrderItem(Base):
+    """Master-Detail line item: each sticker design inside an Order with its own specs and image."""
+
+    __tablename__ = "order_items"
+    __table_args__ = (
+        UniqueConstraint("order_id", "position", name="uq_order_items_order_position"),
+        CheckConstraint("position >= 1", name="chk_order_items_position"),
+        CheckConstraint(
+            "vinyl_gloss_mode IS NULL OR vinyl_gloss_mode IN ('En rollo', 'Corte uno a uno')",
+            name="chk_order_items_gloss_mode",
+        ),
+        CheckConstraint(
+            "(diameter_cm IS NOT NULL AND dimensions IS NULL) "
+            "OR (diameter_cm IS NULL AND dimensions IS NOT NULL)",
+            name="chk_order_items_size_xor",
+        ),
+        CheckConstraint(
+            "diameter_cm IS NULL OR (diameter_cm >= 0.5 AND diameter_cm <= 500)",
+            name="chk_order_items_diameter_range",
+        ),
+        CheckConstraint(
+            "size_mode IS NULL OR size_mode IN ('both', 'height_only', 'width_only')",
+            name="chk_order_items_size_mode",
+        ),
+        CheckConstraint(
+            "height_cm IS NULL OR (height_cm >= 0.5 AND height_cm <= 500)",
+            name="chk_order_items_height_range",
+        ),
+        CheckConstraint(
+            "width_cm IS NULL OR (width_cm >= 0.5 AND width_cm <= 500)",
+            name="chk_order_items_width_range",
+        ),
+        CheckConstraint("quantity >= 1 AND quantity <= 1000000", name="chk_order_items_quantity"),
+        CheckConstraint(
+            "image_content_type IN ('image/png', 'image/jpeg', 'image/webp', 'image/svg+xml')",
+            name="chk_order_items_image_mime",
+        ),
+        CheckConstraint(
+            "image_size_bytes > 0 AND image_size_bytes <= 10485760",
+            name="chk_order_items_image_size",
+        ),
+        CheckConstraint(
+            "prepress_status IN ('pendiente', 'mejorado', 'troquelado', 'listo_pliego')",
+            name="chk_order_items_prepress_status",
+        ),
+        Index("idx_order_items_order_id", "order_id"),
+        Index("idx_order_items_material_id", "material_id"),
+        Index("idx_order_items_shape_id", "shape_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    material_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("materials.id", ondelete="RESTRICT"), nullable=False
+    )
+    vinyl_gloss_mode: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    shape_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("shapes.id", ondelete="RESTRICT"), nullable=False
+    )
+    diameter_cm: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
+    size_mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    height_cm: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
+    width_cm: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
+    dimensions: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    size_display: Mapped[str] = mapped_column(String(50), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    image_storage_path: Mapped[str] = mapped_column(String(300), nullable=False)
+    image_safe_filename: Mapped[str] = mapped_column(String(160), nullable=False)
+    image_original_filename: Mapped[str] = mapped_column(String(160), nullable=False)
+    image_content_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    image_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    image_uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    # Non-destructive prepress artifacts (original image_* fields remain untouched)
+    enhanced_storage_path: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    die_cut_anchors_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    die_cut_config_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    die_cut_eps_path: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    prepress_status: Mapped[str] = mapped_column(
+        String(30), default="pendiente", server_default="pendiente", nullable=False
+    )
+
+    order: Mapped["Order"] = relationship("Order", back_populates="items")
+    material: Mapped["Material"] = relationship("Material", back_populates="order_items")
+    shape: Mapped["Shape"] = relationship("Shape", back_populates="order_items")
 
 
 class OrderStatusHistory(Base):

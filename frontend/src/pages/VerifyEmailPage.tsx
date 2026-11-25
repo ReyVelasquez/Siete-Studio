@@ -1,7 +1,14 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { Navigate, useNavigate } from "react-router-dom";
-import { CheckCircle2, LogOut, MailCheck, RefreshCw, Send } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  LogOut,
+  MailCheck,
+  Send,
+} from "lucide-react";
 import { pageTransitionVariants } from "@/config/animations";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { Button } from "@/components/ui/Button";
@@ -81,37 +88,78 @@ export const VerifyEmailPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-surface-canvas bg-print-grid">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
+    <div className="flex min-h-screen flex-col bg-surface-canvas bg-print-grid text-ink-primary">
+      {/* Top Utility Bar */}
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-5 sm:px-6">
         <BrandLogo showTagline />
         <ThemeToggle />
-      </div>
+      </header>
 
-      <motion.div
+      <motion.main
         variants={pageTransitionVariants}
         initial="initial"
         animate="animate"
-        className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-4 pb-12"
+        className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-4 pb-12 pt-2"
       >
-        <StickerCard dieCut padding="lg" className="text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-ink shadow-sticker">
-            <MailCheck className="h-7 w-7" />
+        <StickerCard
+          dieCut
+          registrationMarks
+          tone="featured"
+          padding="lg"
+          className="text-center"
+        >
+          <div className="sticker-badge mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-ink">
+            <MailCheck className="h-7 w-7" aria-hidden="true" />
           </div>
 
-          <span className="mt-4 inline-block rounded-full border border-dashed border-line-diecut bg-surface-elevated px-3 py-0.5 font-mono text-[10px] font-bold uppercase tracking-widest text-accent">
-            Confirmación por Email Requerida
+          <span className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-dashed border-line-diecut/75 bg-accent-soft px-3 py-0.5 font-mono text-[10px] font-bold uppercase tracking-widest text-accent">
+            <Clock className="h-3 w-3" aria-hidden="true" />
+            Verificación Pendiente · Paso Final
           </span>
 
-          <h1 className="mt-3 font-display text-2xl font-extrabold tracking-tight text-ink-primary">
+          <h1 className="mt-3 font-display text-2xl font-extrabold tracking-tight text-ink-primary sm:text-3xl">
             Confirma tu correo electrónico
           </h1>
 
-          <p className="mt-2 text-xs leading-relaxed text-ink-secondary">
-            Enviamos un enlace de confirmación a{" "}
-            <strong className="font-mono text-ink-primary">{user.email}</strong>. Abre ese enlace en
-            tu correo (revisa también Spam o Promociones) y luego presiona el botón para continuar.
-          </p>
+          {/* Target Email Ticket */}
+          <div className="mt-4 rounded-lg border border-dashed border-line-diecut/70 bg-accent-soft/45 px-4 py-3">
+            <span className="block font-mono text-[10px] font-bold uppercase tracking-widest text-ink-muted">
+              Enlace enviado a
+            </span>
+            <strong className="mt-0.5 block truncate font-mono text-sm font-bold text-ink-primary">
+              {user.email}
+            </strong>
+          </div>
 
+          {/* Concise Verification Checklist */}
+          <ol className="mt-4 grid grid-cols-1 gap-2 rounded-lg border border-line-subtle bg-surface-elevated/55 p-3.5 text-left text-xs sm:grid-cols-3">
+            <li className="flex items-start gap-2 sm:flex-col sm:gap-1">
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent font-mono text-[10px] font-bold text-accent-ink">
+                1
+              </span>
+              <span className="text-ink-secondary">
+                Abre tu correo (revisa Spam o Promociones).
+              </span>
+            </li>
+            <li className="flex items-start gap-2 sm:flex-col sm:gap-1">
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent font-mono text-[10px] font-bold text-accent-ink">
+                2
+              </span>
+              <span className="text-ink-secondary">
+                Haz clic en el enlace seguro de verificación.
+              </span>
+            </li>
+            <li className="flex items-start gap-2 sm:flex-col sm:gap-1">
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent font-mono text-[10px] font-bold text-accent-ink">
+                3
+              </span>
+              <span className="text-ink-secondary">
+                Vuelve aquí y presiona continuar al taller.
+              </span>
+            </li>
+          </ol>
+
+          {/* Primary & Quick Action Stack */}
           <div className="mt-6 flex flex-col gap-3">
             <Button
               type="button"
@@ -120,33 +168,38 @@ export const VerifyEmailPage: React.FC = () => {
               loading={checking}
               onClick={handleCheckVerified}
               leftIcon={<CheckCircle2 className="h-4 w-4" />}
+              rightIcon={<ArrowRight className="h-4 w-4" />}
             >
               Ya confirmé mi correo · Continuar
             </Button>
 
             <Button
               type="button"
-              variant="secondary"
+              variant="dieCut"
+              size="md"
               fullWidth
               loading={resending}
               onClick={handleResend}
-              leftIcon={resending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              leftIcon={<Send className="h-4 w-4" />}
             >
               Reenviar correo de confirmación
             </Button>
 
-            <Button
-              type="button"
-              variant="ghost"
-              fullWidth
-              onClick={handleLogout}
-              leftIcon={<LogOut className="h-4 w-4" />}
-            >
-              Cerrar sesión y usar otra cuenta
-            </Button>
+            <div className="border-t border-dashed border-line-subtle pt-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                fullWidth
+                onClick={handleLogout}
+                leftIcon={<LogOut className="h-4 w-4" />}
+              >
+                Cerrar sesión y usar otra cuenta
+              </Button>
+            </div>
           </div>
         </StickerCard>
-      </motion.div>
+      </motion.main>
     </div>
   );
 };

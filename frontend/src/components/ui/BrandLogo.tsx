@@ -1,18 +1,20 @@
 import React from "react";
 import { THEME_CONFIG } from "@/config/theme.config";
 
-interface BrandLogoProps {
+export interface BrandLogoProps {
   showTagline?: boolean;
   compact?: boolean;
+  className?: string;
 }
 
 export const BrandLogo: React.FC<BrandLogoProps> = ({
   showTagline = false,
   compact = false,
+  className = "",
 }) => {
   return (
-    <div className="inline-flex items-center gap-2.5 select-none">
-      <div className="relative flex h-9 w-9 items-center justify-center rounded-md bg-brand-700 text-white shadow-sticker dark:bg-brand-500 dark:text-brand-950">
+    <div className={`group inline-flex select-none items-center gap-2.5 ${className}`}>
+      <div className="sticker-badge relative flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent text-accent-ink transition-transform duration-fast ease-studio group-hover:-rotate-3 group-hover:shadow-sticker-hover">
         <svg viewBox="0 0 64 64" fill="none" className="h-6 w-6" aria-hidden="true">
           <path
             d="M14 8H50C53.3137 8 56 10.6863 56 14V38L38 56H14C10.6863 56 8 53.3137 8 50V14C8 10.6863 10.6863 8 14 8Z"
@@ -34,14 +36,14 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
       </div>
       {!compact && (
         <div className="flex flex-col leading-none">
-          <span className="font-display text-base font-extrabold tracking-tight text-ink-primary">
-            {THEME_CONFIG.brand.name}
-            <span className="ml-1 font-mono text-xs font-medium text-brand-600 dark:text-brand-300">
+          <span className="inline-flex items-center gap-1.5 font-display text-base font-extrabold tracking-tight text-ink-primary">
+            <span>{THEME_CONFIG.brand.name}</span>
+            <span className="rounded-xs border border-dashed border-line-diecut/60 bg-accent-soft px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider text-accent">
               STUDIO
             </span>
           </span>
           {showTagline && (
-            <span className="mt-0.5 text-[11px] font-medium text-ink-muted">
+            <span className="mt-1 text-[11px] font-medium text-ink-muted">
               {THEME_CONFIG.brand.tagline}
             </span>
           )}

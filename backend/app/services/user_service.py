@@ -85,7 +85,7 @@ class UserService:
             is_first_or_initial_admin = total_users == 0 or (
                 bool(initial_admin) and email == initial_admin
             )
-            role_code = "admin" if is_first_or_initial_admin else "operador"
+            role_code = "admin" if is_first_or_initial_admin else "cliente"
             role = self._get_role(db, role_code)
 
             user = User(

@@ -1,9 +1,9 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useId } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { modalBackdropVariants, modalPanelVariants } from "@/config/animations";
 
-interface ModalProps {
+export interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
@@ -20,6 +20,8 @@ export const Modal: React.FC<ModalProps> = ({
   maxWidthClass = "max-w-3xl",
   children,
 }) => {
+  const headingId = useId();
+
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -40,15 +42,16 @@ export const Modal: React.FC<ModalProps> = ({
           className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="modal-heading"
+          aria-labelledby={headingId}
         >
+          {/* Tier 1 darkest monochrome anchor keeps scrim dark in both Light & Dark themes */}
           <motion.div
             variants={modalBackdropVariants}
             initial="hidden"
             animate="visible"
             exit="exit"
             onClick={onClose}
-            className="fixed inset-0 bg-brand-950/60 backdrop-blur-sm"
+            className="fixed inset-0 bg-brand-950/65 backdrop-blur-sm"
           />
 
           <motion.div
@@ -56,25 +59,27 @@ export const Modal: React.FC<ModalProps> = ({
             initial="hidden"
             animate="visible"
             exit="exit"
-            className={`relative z-10 flex max-h-[90vh] w-full flex-col overflow-hidden rounded-xl border border-line-subtle bg-surface-card shadow-elevated ${maxWidthClass}`}
+            className={`relative z-10 flex max-h-[90vh] w-full flex-col overflow-hidden rounded-sticker border border-line-subtle bg-surface-card text-ink-primary shadow-elevated ${maxWidthClass}`}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-line-subtle px-5 py-4 sm:px-6">
-              <div>
+            <div className="flex items-start justify-between gap-4 border-b border-dashed border-line-subtle px-5 py-4 sm:px-6">
+              <div className="min-w-0">
                 <h2
-                  id="modal-heading"
+                  id={headingId}
                   className="font-display text-lg font-bold tracking-tight text-ink-primary"
                 >
                   {title}
                 </h2>
-                {subtitle && <p className="mt-0.5 text-xs text-ink-muted">{subtitle}</p>}
+                {subtitle && (
+                  <p className="mt-0.5 text-xs text-ink-muted">{subtitle}</p>
+                )}
               </div>
               <button
                 type="button"
                 onClick={onClose}
                 aria-label="Cerrar ventana"
-                className="rounded-md p-1.5 text-ink-muted transition-colors hover:bg-surface-elevated hover:text-ink-primary"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-transparent text-ink-muted transition-all duration-fast ease-studio hover:border-line-subtle hover:bg-surface-elevated hover:text-ink-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-card active:scale-95"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
             <div className="overflow-y-auto px-5 py-5 sm:px-6">{children}</div>

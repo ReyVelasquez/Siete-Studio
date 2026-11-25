@@ -3,12 +3,23 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, Lock, Mail } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  Clock,
+  Lock,
+  Mail,
+  Scissors,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { pageTransitionVariants } from "@/config/animations";
 import { THEME_CONFIG } from "@/config/theme.config";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { StickerBadge } from "@/components/ui/StickerBadge";
 import { StickerCard } from "@/components/ui/StickerCard";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
@@ -64,125 +75,226 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-surface-canvas bg-print-grid">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
+    <div className="flex min-h-screen flex-col bg-surface-canvas bg-print-grid text-ink-primary">
+      {/* Top Utility Bar */}
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-5 sm:px-6">
         <Link
           to="/"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-secondary hover:text-ink-primary"
+          className="group inline-flex h-9 items-center gap-2 rounded-full border border-line-subtle bg-surface-card px-3.5 text-xs font-semibold text-ink-secondary shadow-xs transition-all duration-fast ease-studio hover:-translate-y-px hover:border-line-diecut hover:bg-surface-elevated hover:text-ink-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-canvas"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
+          <ArrowLeft
+            className="h-3.5 w-3.5 text-accent transition-transform duration-fast ease-studio group-hover:-translate-x-0.5"
+            aria-hidden="true"
+          />
           <span>Volver al portal público</span>
         </Link>
-        <ThemeToggle />
-      </div>
 
-      <motion.div
+        <ThemeToggle />
+      </header>
+
+      {/* Main Split Studio Auth Workspace */}
+      <motion.main
         variants={pageTransitionVariants}
         initial="initial"
         animate="animate"
-        className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 pb-12"
+        className="mx-auto flex w-full max-w-5xl flex-1 items-center px-4 pb-12 pt-2 sm:px-6"
       >
-        <div className="mb-6 flex justify-center">
-          <BrandLogo showTagline />
-        </div>
-
-        <StickerCard padding="lg">
-          <div className="text-center">
-            <h1 className="font-display text-2xl font-extrabold tracking-tight text-ink-primary">
-              {THEME_CONFIG.copy.auth.loginTitle}
-            </h1>
-            <p className="mt-1.5 text-xs text-ink-muted">
-              {THEME_CONFIG.copy.auth.loginSubtitle}
-            </p>
-          </div>
-
-          {!isConfigured && (
-            <div className="mt-5 rounded-lg border border-dashed border-line-diecut bg-surface-elevated p-3 text-xs text-ink-secondary">
-              Configura las variables <code className="font-mono font-bold">VITE_FIREBASE_*</code> en{" "}
-              <code className="font-mono font-bold">frontend/.env</code> para habilitar el inicio de sesión.
-            </div>
-          )}
-
-          <div className="mt-6">
-            <Button
-              type="button"
-              variant="outline"
-              fullWidth
-              loading={googleLoading}
-              onClick={handleGoogleLogin}
-              leftIcon={
-                <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M21.35 11.1h-9.18v2.98h5.27c-.23 1.48-1.69 4.35-5.27 4.35-3.17 0-5.76-2.62-5.76-5.85s2.59-5.85 5.76-5.85c1.81 0 3.01.77 3.7 1.43l2.52-2.43C16.78 4.22 14.68 3.3 12.17 3.3 7.1 3.3 3 7.4 3 12.5s4.1 9.2 9.17 9.2c5.3 0 8.81-3.72 8.81-8.97 0-.6-.06-1.06-.15-1.63Z"
-                  />
-                </svg>
-              }
-            >
-              Continuar con Google
-            </Button>
-          </div>
-
-          <div className="my-5 flex items-center gap-3">
-            <div className="h-px flex-1 bg-line-subtle" />
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-ink-muted">
-              o con tu correo
-            </span>
-            <div className="h-px flex-1 bg-line-subtle" />
-          </div>
-
-          <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
-            <Input
-              label="Correo electrónico"
-              type="email"
-              autoComplete="email"
-              placeholder="operador@taller.com"
-              leftIcon={<Mail className="h-4 w-4" />}
-              error={errors.email?.message}
-              {...register("email")}
-            />
-
-            <Input
-              label="Contraseña"
-              type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              leftIcon={<Lock className="h-4 w-4" />}
-              error={errors.password?.message}
-              {...register("password")}
-            />
-
-            <div className="flex justify-end">
-              <Link
-                to="/forgot-password"
-                className="text-xs font-semibold text-accent hover:underline"
-              >
-                ¿Olvidaste tu contraseña?
-              </Link>
+        <div className="grid w-full grid-cols-1 items-center gap-6 lg:grid-cols-12 lg:gap-8">
+          {/* Left Context Rail (Desktop): Print-Studio Workflow & Quick Entry Overview */}
+          <aside className="order-2 space-y-5 lg:order-1 lg:col-span-5">
+            <div className="hidden lg:block">
+              <BrandLogo showTagline />
             </div>
 
-            {authError && (
-              <div
-                role="alert"
-                className="rounded-lg border border-brand-800 bg-brand-950 px-3.5 py-2.5 text-xs font-medium text-brand-50 dark:border-brand-300 dark:bg-brand-900"
-              >
-                {authError}
+            <StickerCard dieCut registrationMarks padding="md" className="space-y-5">
+              <div className="space-y-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-line-diecut/75 bg-accent-soft px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-accent">
+                  <Scissors className="h-3 w-3" aria-hidden="true" />
+                  Estación de Producción
+                </span>
+                <h2 className="font-display text-lg font-extrabold tracking-tight text-ink-primary">
+                  Control total del flujo de stickers
+                </h2>
+                <p className="text-xs leading-relaxed text-ink-secondary">
+                  Ingresa al panel del taller para atender trabajos pendientes, mejorar la calidad de impresión y preparar archivos troquelados listos para corte.
+                </p>
               </div>
-            )}
 
-            <Button type="submit" fullWidth size="lg" loading={isSubmitting}>
-              Iniciar sesión
-            </Button>
-          </form>
+              {/* Live Production Pipeline Badges */}
+              <div className="space-y-2 border-t border-dashed border-line-subtle pt-4">
+                <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-ink-muted">
+                  Estados de Producción
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StickerBadge status="Pendiente" size="sm" />
+                  <StickerBadge status="En Diseño" size="sm" />
+                  <StickerBadge status="Troquelado" size="sm" />
+                  <StickerBadge status="Listo" size="sm" />
+                </div>
+              </div>
 
-          <p className="mt-6 text-center text-xs text-ink-muted">
-            ¿Nuevo en el equipo?{" "}
-            <Link to="/register" className="font-bold text-accent hover:underline">
-              Crear cuenta
-            </Link>
-          </p>
-        </StickerCard>
-      </motion.div>
+              {/* Operational Highlights */}
+              <ul className="space-y-2.5 border-t border-dashed border-line-subtle pt-4 text-xs">
+                <li className="flex items-start gap-2.5">
+                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+                    <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <p className="font-bold text-ink-primary">Cola priorizada por hora</p>
+                    <p className="text-[11px] text-ink-muted">
+                      Visualiza entregas urgentes y pendientes apenas inicias sesión.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+                    <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <p className="font-bold text-ink-primary">Preprensa IA & Troquelado EPS</p>
+                    <p className="text-[11px] text-ink-muted">
+                      Acceso directo a calibración CMYK, remoción de fondo y corte Bézier.
+                    </p>
+                  </div>
+                </li>
+              </ul>
+            </StickerCard>
+          </aside>
+
+          {/* Right Primary Column: Auth Card (First on Mobile, Featured on Desktop) */}
+          <section className="order-1 mx-auto w-full max-w-md lg:order-2 lg:col-span-7 lg:max-w-none">
+            <div className="mb-5 flex justify-center lg:hidden">
+              <BrandLogo showTagline />
+            </div>
+
+            <StickerCard tone="featured" padding="lg" className="mx-auto w-full max-w-md">
+              <div className="text-center">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-line-subtle bg-surface-elevated px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-ink-secondary">
+                  <ShieldCheck className="h-3 w-3 text-accent" aria-hidden="true" />
+                  Acceso Seguro · Taller
+                </span>
+                <h1 className="mt-3 font-display text-2xl font-extrabold tracking-tight text-ink-primary">
+                  {THEME_CONFIG.copy.auth.loginTitle}
+                </h1>
+                <p className="mt-1.5 text-xs text-ink-muted">
+                  {THEME_CONFIG.copy.auth.loginSubtitle}
+                </p>
+              </div>
+
+              {!isConfigured && (
+                <div
+                  role="status"
+                  className="mt-5 flex items-start gap-2.5 rounded-lg border border-dashed border-line-diecut bg-accent-soft/45 p-3.5 text-xs text-ink-secondary"
+                >
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                  <span>
+                    Configura las variables{" "}
+                    <code className="rounded-xs bg-surface-card px-1 py-0.5 font-mono font-bold text-ink-primary">
+                      VITE_FIREBASE_*
+                    </code>{" "}
+                    en{" "}
+                    <code className="rounded-xs bg-surface-card px-1 py-0.5 font-mono font-bold text-ink-primary">
+                      frontend/.env
+                    </code>{" "}
+                    para habilitar el inicio de sesión.
+                  </span>
+                </div>
+              )}
+
+              {/* Quick-Access OAuth Button */}
+              <div className="mt-6">
+                <Button
+                  type="button"
+                  variant="dieCut"
+                  size="lg"
+                  fullWidth
+                  loading={googleLoading}
+                  onClick={handleGoogleLogin}
+                  leftIcon={
+                    <svg className="h-4 w-4 text-accent" viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        fill="currentColor"
+                        d="M21.35 11.1h-9.18v2.98h5.27c-.23 1.48-1.69 4.35-5.27 4.35-3.17 0-5.76-2.62-5.76-5.85s2.59-5.85 5.76-5.85c1.81 0 3.01.77 3.7 1.43l2.52-2.43C16.78 4.22 14.68 3.3 12.17 3.3 7.1 3.3 3 7.4 3 12.5s4.1 9.2 9.17 9.2c5.3 0 8.81-3.72 8.81-8.97 0-.6-.06-1.06-.15-1.63Z"
+                      />
+                    </svg>
+                  }
+                >
+                  Continuar con Google
+                </Button>
+              </div>
+
+              <div className="my-5 flex items-center gap-3">
+                <div className="h-px flex-1 border-t border-dashed border-line-subtle" />
+                <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-ink-muted">
+                  o con tu correo
+                </span>
+                <div className="h-px flex-1 border-t border-dashed border-line-subtle" />
+              </div>
+
+              <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+                <Input
+                  label="Correo electrónico"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="operador@taller.com"
+                  leftIcon={<Mail className="h-4 w-4" />}
+                  error={errors.email?.message}
+                  {...register("email")}
+                />
+
+                <Input
+                  label="Contraseña"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  leftIcon={<Lock className="h-4 w-4" />}
+                  error={errors.password?.message}
+                  {...register("password")}
+                />
+
+                <div className="flex justify-end">
+                  <Link
+                    to="/forgot-password"
+                    className="rounded-xs text-xs font-semibold text-accent transition-colors duration-fast ease-studio hover:text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-card"
+                  >
+                    ¿Olvidaste tu contraseña?
+                  </Link>
+                </div>
+
+                {authError && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2.5 rounded-lg border border-state-critical-bg bg-state-critical-bg px-3.5 py-2.5 text-xs font-semibold text-state-critical-ink"
+                  >
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{authError}</span>
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  fullWidth
+                  size="lg"
+                  loading={isSubmitting}
+                  rightIcon={<ArrowRight className="h-4 w-4" />}
+                >
+                  Iniciar sesión
+                </Button>
+              </form>
+
+              <div className="mt-6 border-t border-dashed border-line-subtle pt-4 text-center text-xs text-ink-muted">
+                ¿Nuevo en el equipo?{" "}
+                <Link
+                  to="/register"
+                  className="rounded-xs font-bold text-accent transition-colors duration-fast ease-studio hover:text-accent-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-card"
+                >
+                  Crear cuenta
+                </Link>
+              </div>
+            </StickerCard>
+          </section>
+        </div>
+      </motion.main>
     </div>
   );
 };

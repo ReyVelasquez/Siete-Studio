@@ -7,7 +7,9 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { ToastProvider } from "@/hooks/useToast";
 import { DashboardHomePage } from "@/pages/DashboardHomePage";
+import { DieCutStudioPage } from "@/pages/DieCutStudioPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
+import { ImageEnhancerPage } from "@/pages/ImageEnhancerPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { MaterialsCatalogPage } from "@/pages/MaterialsCatalogPage";
 import { OrdersManagementPage } from "@/pages/OrdersManagementPage";
@@ -51,6 +53,8 @@ export const App: React.FC = () => {
               >
                 <Route index element={<DashboardHomePage />} />
                 <Route path="orders" element={<OrdersManagementPage />} />
+                <Route path="image-enhancer" element={<ImageEnhancerPage />} />
+                <Route path="die-cut" element={<DieCutStudioPage />} />
                 <Route path="materials" element={<MaterialsCatalogPage />} />
                 <Route path="users" element={<UsersManagementPage />} />
                 <Route path="profile" element={<ProfileSecurityPage />} />

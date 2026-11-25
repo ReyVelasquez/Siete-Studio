@@ -1,17 +1,17 @@
-"""Protected administrative endpoints for full order CRUD, sales control, and artwork download."""
+"""Protected administrative endpoints for Master-Detail order CRUD, sales control & artwork download."""
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
+from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.core.file_security import validate_and_prepare_image
-from app.core.security import AuthenticatedUser, get_current_user
+from app.core.security import AuthenticatedUser, require_staff
 from app.db.database import get_db
+from app.routers.public_orders import resolve_raw_order_items, validate_order_item_uploads
 from app.schemas.order import (
     AdminQuickOrderCreateInput,
     OrderListResponse,
@@ -21,6 +21,7 @@ from app.schemas.order import (
     PaymentMethod,
     StickerMaterial,
     StickerShape,
+    format_order_validation_error,
 )
 from app.services.order_service import order_service
 from app.services.storage_service import storage_service
@@ -28,29 +29,49 @@ from app.services.storage_service import storage_service
 router = APIRouter(
     prefix="/admin/orders",
     tags=["Admin Orders & Sales"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_staff)],
 )
 
 
-def _format_validation_error(exc: ValidationError) -> str:
-    messages = []
-    for err in exc.errors():
-        msg = err.get("msg", "Valor inválido")
-        if msg.startswith("Value error, "):
-            msg = msg[len("Value error, ") :]
-        messages.append(msg)
-    return " ".join(messages)
+def _build_image_response(
+    *,
+    order_number: str,
+    storage_path: str,
+    safe_filename: str,
+    position: Optional[int],
+    download: bool,
+) -> Response:
+    data, content_type = storage_service.download_order_image(storage_path)
+    ext = "." + safe_filename.rsplit(".", 1)[-1] if "." in safe_filename else ""
+    suffix = f"-item-{position}" if position and position > 1 else ""
+    download_name = f"{order_number}{suffix}{ext}"
+    is_svg = content_type.lower().split(";", 1)[0].strip() == "image/svg+xml" or ext.lower() == ".svg"
+    disposition = "attachment" if download else "inline"
+
+    headers = {
+        "Content-Disposition": f'{disposition}; filename="{download_name}"',
+        "Cache-Control": "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if is_svg:
+        headers["Content-Security-Policy"] = "default-src 'none'; sandbox"
+
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers=headers,
+    )
 
 
 @router.get("", response_model=OrderListResponse, summary="Listar pedidos con filtros y prioridad")
 async def list_admin_orders(
-    status_filter: Optional[OrderStatus] = Query(default=None, alias="status"),
-    material: Optional[StickerMaterial] = Query(default=None),
-    shape: Optional[StickerShape] = Query(default=None),
-    search: Optional[str] = Query(default=None, max_length=120),
-    only_pending: bool = Query(default=False),
-    delivery_date: Optional[date] = Query(default=None),
-    limit: int = Query(default=200, ge=1, le=500),
+    status_filter: Annotated[Optional[OrderStatus], Query(alias="status")] = None,
+    material: Annotated[Optional[StickerMaterial], Query()] = None,
+    shape: Annotated[Optional[StickerShape], Query()] = None,
+    search: Annotated[Optional[str], Query(max_length=120)] = None,
+    only_pending: Annotated[bool, Query()] = False,
+    delivery_date: Annotated[Optional[date], Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
     db: Session = Depends(get_db),
 ) -> OrderListResponse:
     return order_service.list_orders(
@@ -69,38 +90,60 @@ async def list_admin_orders(
     "",
     response_model=OrderResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear pedido rápido desde el panel interno",
+    summary="Crear pedido Maestro-Detalle rápido desde el panel interno",
+    description=(
+        "Registra un pedido desde el panel interno con uno o más diseños (`items` JSON) "
+        "y sus imágenes correspondientes (`images`), además de datos iniciales de venta y estado. "
+        "Mantiene compatibilidad con envío legado de un solo diseño."
+    ),
 )
 async def create_admin_quick_order(
-    referral_name: str = Form(...),
-    phone: str = Form(...),
-    material: str = Form(...),
-    vinyl_gloss_mode: Optional[str] = Form(default=None),
-    shape: str = Form(...),
-    diameter_cm: Optional[str] = Form(default=None),
-    dimensions: Optional[str] = Form(default=None),
-    quantity: int = Form(...),
-    delivery_datetime: str = Form(...),
-    total_price: float = Form(default=0.0),
-    advance_payment: float = Form(default=0.0),
-    payment_method: PaymentMethod = Form(default=PaymentMethod.PENDIENTE),
-    order_status: OrderStatus = Form(default=OrderStatus.PENDIENTE, alias="status"),
-    notes: Optional[str] = Form(default=None),
-    image: UploadFile = File(...),
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    referral_name: Annotated[str, Form()],
+    phone: Annotated[str, Form()],
+    delivery_datetime: Annotated[str, Form()],
+    received_at: Annotated[Optional[str], Form()] = None,
+    items: Annotated[Optional[str], Form()] = None,
+    images: Annotated[Optional[List[UploadFile]], File()] = None,
+    # Financial & internal workflow metadata
+    total_price: Annotated[float, Form()] = 0.0,
+    advance_payment: Annotated[float, Form()] = 0.0,
+    payment_method: Annotated[PaymentMethod, Form()] = PaymentMethod.PENDIENTE,
+    order_status: Annotated[OrderStatus, Form(alias="status")] = OrderStatus.PENDIENTE,
+    notes: Annotated[Optional[str], Form()] = None,
+    # Legacy single-item form fields (backward compatibility)
+    material: Annotated[Optional[str], Form()] = None,
+    vinyl_gloss_mode: Annotated[Optional[str], Form()] = None,
+    shape: Annotated[Optional[str], Form()] = None,
+    diameter_cm: Annotated[Optional[str], Form()] = None,
+    size_mode: Annotated[Optional[str], Form()] = None,
+    height_cm: Annotated[Optional[str], Form()] = None,
+    width_cm: Annotated[Optional[str], Form()] = None,
+    dimensions: Annotated[Optional[str], Form()] = None,
+    quantity: Annotated[Optional[int], Form()] = None,
+    image: Annotated[Optional[UploadFile], File()] = None,
+    current_user: AuthenticatedUser = Depends(require_staff),
     db: Session = Depends(get_db),
 ) -> OrderResponse:
+    raw_items = resolve_raw_order_items(
+        items_json=items,
+        material=material,
+        vinyl_gloss_mode=vinyl_gloss_mode,
+        shape=shape,
+        diameter_cm=diameter_cm,
+        size_mode=size_mode,
+        height_cm=height_cm,
+        width_cm=width_cm,
+        dimensions=dimensions,
+        quantity=quantity,
+    )
+
     try:
         validated_payload = AdminQuickOrderCreateInput(
             referral_name=referral_name,
             phone=phone,
-            material=material,
-            vinyl_gloss_mode=vinyl_gloss_mode,
-            shape=shape,
-            diameter_cm=diameter_cm,
-            dimensions=dimensions,
-            quantity=quantity,
+            received_at=received_at,
             delivery_datetime=delivery_datetime,
+            items=raw_items,
             total_price=total_price,
             advance_payment=advance_payment,
             payment_method=payment_method,
@@ -110,11 +153,16 @@ async def create_admin_quick_order(
     except ValidationError as exc:
         raise HTTPException(
             status_code=422,
-            detail=_format_validation_error(exc),
+            detail=format_order_validation_error(exc),
         ) from exc
 
-    validated_image = await validate_and_prepare_image(image)
-    return order_service.create_admin_order(db, validated_payload, validated_image, current_user)
+    validated_images = await validate_order_item_uploads(
+        expected_count=len(validated_payload.items),
+        images=images,
+        legacy_image=image,
+        items=validated_payload.items,
+    )
+    return order_service.create_admin_order(db, validated_payload, validated_images, current_user)
 
 
 @router.get("/{order_id}", response_model=OrderResponse, summary="Obtener detalle de pedido")
@@ -133,7 +181,7 @@ async def get_admin_order(
 async def update_admin_order_sales(
     order_id: str,
     payload: OrderSalesUpdateInput,
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(require_staff),
     db: Session = Depends(get_db),
 ) -> OrderResponse:
     return order_service.update_order_sales(db, order_id, payload, current_user)
@@ -142,7 +190,7 @@ async def update_admin_order_sales(
 @router.delete(
     "/{order_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar un pedido (ON DELETE CASCADE en imagen, historial y pagos)",
+    summary="Eliminar un pedido (ON DELETE CASCADE en diseños, imágenes, historial y pagos)",
 )
 async def delete_admin_order(
     order_id: str,
@@ -154,30 +202,61 @@ async def delete_admin_order(
 
 @router.get(
     "/{order_id}/image",
-    summary="Descargar o previsualizar imagen original del pedido de forma segura",
+    summary="Descargar o previsualizar la imagen principal (o de un ítem vía ?item_id) del pedido",
 )
 async def download_order_image(
     order_id: str,
-    download: bool = Query(default=False),
+    item_id: Annotated[Optional[str], Query(description="ID opcional de un diseño específico")] = None,
+    variant: Annotated[
+        Optional[Literal["original", "enhanced"]],
+        Query(description="Variante de imagen: 'original' (cliente) o 'enhanced' (preprensa)."),
+    ] = None,
+    version: Annotated[
+        Optional[Literal["original", "enhanced"]],
+        Query(description="Alias de variant: 'original' o 'enhanced'."),
+    ] = None,
+    download: Annotated[bool, Query()] = False,
     db: Session = Depends(get_db),
 ) -> Response:
-    order = order_service.get_order_by_id(db, order_id)
-    if not order.image.storage_path:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El pedido no cuenta con una imagen asociada.",
-        )
+    selected_variant: Literal["original", "enhanced"] = variant or version or "original"
+    order, img_info, pos = order_service.get_order_item_image(
+        db, order_id, item_id=item_id, variant=selected_variant
+    )
+    return _build_image_response(
+        order_number=order.order_number,
+        storage_path=img_info.storage_path,
+        safe_filename=img_info.safe_filename,
+        position=pos if item_id is not None else None,
+        download=download,
+    )
 
-    data, content_type = storage_service.download_order_image(order.image.storage_path)
-    ext = "." + order.image.safe_filename.rsplit(".", 1)[-1] if "." in order.image.safe_filename else ""
-    download_name = f"{order.order_number}{ext}"
-    disposition = "attachment" if download else "inline"
 
-    return Response(
-        content=data,
-        media_type=content_type,
-        headers={
-            "Content-Disposition": f'{disposition}; filename="{download_name}"',
-            "Cache-Control": "private, max-age=300",
-        },
+@router.get(
+    "/{order_id}/items/{item_id}/image",
+    summary="Descargar o previsualizar la imagen propia de un diseño específico del pedido",
+)
+async def download_order_item_image(
+    order_id: str,
+    item_id: str,
+    variant: Annotated[
+        Optional[Literal["original", "enhanced"]],
+        Query(description="Variante de imagen: 'original' (cliente) o 'enhanced' (preprensa)."),
+    ] = None,
+    version: Annotated[
+        Optional[Literal["original", "enhanced"]],
+        Query(description="Alias de variant: 'original' o 'enhanced'."),
+    ] = None,
+    download: Annotated[bool, Query()] = False,
+    db: Session = Depends(get_db),
+) -> Response:
+    selected_variant: Literal["original", "enhanced"] = variant or version or "original"
+    order, img_info, pos = order_service.get_order_item_image(
+        db, order_id, item_id=item_id, variant=selected_variant
+    )
+    return _build_image_response(
+        order_number=order.order_number,
+        storage_path=img_info.storage_path,
+        safe_filename=img_info.safe_filename,
+        position=pos,
+        download=download,
     )

@@ -33,8 +33,9 @@ interface RequestOptions {
 }
 
 function buildUrl(path: string, query?: RequestOptions["query"]): string {
+  const baseUrl = env.apiBaseUrl.replace(/\/+$/, "");
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const url = new URL(`${env.apiBaseUrl}${normalizedPath}`);
+  const url = new URL(`${baseUrl}${normalizedPath}`);
   if (query) {
     Object.entries(query).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== "") {

@@ -1,27 +1,43 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
+import { useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
+  Archive,
   CalendarClock,
+  CheckCircle2,
   Download,
   ExternalLink,
+  FileText,
   History,
   Image as ImageIcon,
+  Layers,
   Loader2,
   MessageCircle,
+  Play,
   Save,
+  Scissors,
+  Scroll,
+  Sparkles,
   Trash2,
   Wallet,
 } from "lucide-react";
 import { THEME_CONFIG, formatCurrency } from "@/config/theme.config";
+import { PrepressStatusBadge, getPrepressStatusMeta } from "@/components/orders/PrepressStatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { StickerBadge } from "@/components/ui/StickerBadge";
-import { salesUpdateSchema, type SalesUpdateFormValues } from "@/schemas/order.schema";
+import {
+  resolveDesignMeasureSpec,
+  salesUpdateSchema,
+  type SalesUpdateFormValues,
+} from "@/schemas/order.schema";
+import { imageProcessingService } from "@/services/imageProcessing.service";
 import { ordersService } from "@/services/orders.service";
-import type { OrderItem } from "@/types/order";
+import type { OrderDesignItemResponse, OrderItem } from "@/types/order";
 import { formatDateTime } from "@/utils/date";
 import { useToast } from "@/hooks/useToast";
 
@@ -39,11 +55,22 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   onDeleted,
 }) => {
   const { pushToast } = useToast();
+  const navigate = useNavigate();
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [artworkNaturalSize, setArtworkNaturalSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const [selectedItemIndex, setSelectedItemIndex] = useState(0);
+  const [previewVariant, setPreviewVariant] = useState<"original" | "enhanced">("original");
   const [loadingImage, setLoadingImage] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [exportingProduction, setExportingProduction] = useState<"eps" | "pdf" | "zip" | null>(
+    null
+  );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [startingWork, setStartingWork] = useState(false);
 
   const {
     register,
@@ -58,6 +85,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   useEffect(() => {
     if (!order) return;
     setConfirmDelete(false);
+    setSelectedItemIndex(0);
+    setPreviewVariant("original");
     reset({
       total_price: order.total_price,
       advance_payment: order.advance_payment,
@@ -67,6 +96,47 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
     });
   }, [order, reset]);
 
+  const designItems = useMemo<OrderDesignItemResponse[]>(() => {
+    if (!order) return [];
+    if (order.items && order.items.length > 0) {
+      return [...order.items].sort((a, b) => a.position - b.position);
+    }
+    return [
+      {
+        id: "",
+        position: 1,
+        material: order.material,
+        vinyl_gloss_mode: order.vinyl_gloss_mode,
+        shape: order.shape,
+        diameter_cm: order.diameter_cm,
+        size_mode: order.size_mode ?? null,
+        height_cm: order.height_cm ?? null,
+        width_cm: order.width_cm ?? null,
+        dimensions: order.dimensions,
+        size_display: order.size_display,
+        quantity: order.quantity,
+        image: order.image,
+        prepress_status: "pendiente",
+      },
+    ];
+  }, [order]);
+
+  const activeDesignItem =
+    designItems[selectedItemIndex] ?? designItems[0] ?? null;
+
+  const hasEnhancedForActive = Boolean(
+    activeDesignItem?.enhanced_storage_path ||
+      activeDesignItem?.has_enhanced_image ||
+      activeDesignItem?.prepress_status === "mejorado" ||
+      activeDesignItem?.prepress_status === "troquelado" ||
+      activeDesignItem?.prepress_status === "listo_pliego"
+  );
+
+  // Automatically prefer enhanced artwork when selecting a design that has it
+  useEffect(() => {
+    setPreviewVariant(hasEnhancedForActive ? "enhanced" : "original");
+  }, [activeDesignItem?.id, selectedItemIndex, hasEnhancedForActive]);
+
   useEffect(() => {
     if (!order) {
       setImageUrl(null);
@@ -75,11 +145,21 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
 
     let cancelled = false;
     let createdUrl: string | null = null;
+    const effectiveVariant =
+      previewVariant === "enhanced" && hasEnhancedForActive ? "enhanced" : "original";
 
     const loadImage = async () => {
       setLoadingImage(true);
+      setArtworkNaturalSize(null);
       try {
-        const url = await ordersService.fetchOrderImageObjectUrl(order.id);
+        const url =
+          activeDesignItem && activeDesignItem.id
+            ? await ordersService.fetchOrderItemImageObjectUrl(
+                order.id,
+                activeDesignItem.id,
+                effectiveVariant
+              )
+            : await ordersService.fetchOrderImageObjectUrl(order.id, effectiveVariant);
         if (cancelled) {
           URL.revokeObjectURL(url);
           return;
@@ -99,18 +179,125 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [order]);
+  }, [order, activeDesignItem, previewVariant, hasEnhancedForActive]);
 
   if (!order) return null;
+
+  const activeImageMeta = activeDesignItem?.image ?? order.image;
+  const activeMaterial = activeDesignItem?.material ?? order.material;
+  const activeVinylGlossMode = activeDesignItem
+    ? activeDesignItem.vinyl_gloss_mode
+    : order.vinyl_gloss_mode;
+  const activeShape = activeDesignItem?.shape ?? order.shape;
+  const activeSizeDisplay =
+    activeDesignItem?.size_display ||
+    activeDesignItem?.dimensions ||
+    order.size_display ||
+    order.dimensions ||
+    "—";
+  const activeResolvedMeasure = resolveDesignMeasureSpec({
+    shape: activeShape,
+    diameter_cm: activeDesignItem?.diameter_cm ?? order.diameter_cm,
+    size_mode: activeDesignItem?.size_mode ?? order.size_mode ?? undefined,
+    height_cm: activeDesignItem?.height_cm ?? order.height_cm ?? undefined,
+    width_cm: activeDesignItem?.width_cm ?? order.width_cm ?? undefined,
+    dimensions: activeDesignItem?.dimensions ?? order.dimensions ?? activeSizeDisplay,
+    artworkSize: artworkNaturalSize,
+  });
+  const activeQuantity = activeDesignItem?.quantity ?? order.quantity;
+  const totalOrderQuantity = order.total_quantity ?? order.quantity;
+  const isMultiDesign = designItems.length > 1;
+
+  const prepressSummary = designItems.reduce(
+    (acc, item) => {
+      const meta = getPrepressStatusMeta(item.prepress_status);
+      const hasEnhanced = Boolean(
+        item.enhanced_storage_path ||
+          item.has_enhanced_image ||
+          meta.key === "mejorado" ||
+          meta.key === "troquelado" ||
+          meta.key === "listo_pliego"
+      );
+      const hasDieCut = Boolean(
+        item.die_cut_eps_path ||
+          item.die_cut_anchors_json ||
+          meta.key === "troquelado" ||
+          meta.key === "listo_pliego"
+      );
+      const hasEps = Boolean(
+        item.die_cut_eps_path || meta.key === "troquelado" || meta.key === "listo_pliego"
+      );
+
+      if (hasEnhanced) acc.enhanced += 1;
+      if (hasDieCut) acc.dieCut += 1;
+      if (hasEps) acc.epsReady += 1;
+      if (meta.key !== "pendiente" || hasEnhanced || hasDieCut) acc.progressed += 1;
+      return acc;
+    },
+    { enhanced: 0, dieCut: 0, epsReady: 0, progressed: 0 }
+  );
+  const prepressProgressPct =
+    designItems.length > 0
+      ? Math.round((prepressSummary.progressed / designItems.length) * 100)
+      : 0;
+
+  const isRollOrder =
+    designItems.some((it) => it.vinyl_gloss_mode === "En rollo") ||
+    order.vinyl_gloss_mode === "En rollo";
+
+  const unenhancedDesignItems = designItems.filter((item) => {
+    const meta = getPrepressStatusMeta(item.prepress_status);
+    return !Boolean(
+      item.enhanced_storage_path ||
+        item.has_enhanced_image ||
+        meta.key === "mejorado" ||
+        meta.key === "troquelado" ||
+        meta.key === "listo_pliego"
+    );
+  });
 
   const watchedTotal = Number(watch("total_price")) || 0;
   const watchedAdvance = Number(watch("advance_payment")) || 0;
   const computedBalance = Math.max(0, Number((watchedTotal - watchedAdvance).toFixed(2)));
 
+  const buildLabUrl = (basePath: "/dashboard/image-enhancer" | "/dashboard/die-cut", itemId?: string) => {
+    const qs = new URLSearchParams({ orderId: order.id });
+    if (itemId) qs.set("itemId", itemId);
+    return `${basePath}?${qs.toString()}`;
+  };
+
+  const openEnhancerForDesign = (item: OrderDesignItemResponse) => {
+    const targetItemId = item.id || undefined;
+    onClose();
+    navigate(buildLabUrl("/dashboard/image-enhancer", targetItemId), {
+      state: { order, itemId: targetItemId },
+    });
+  };
+
+  const openDieCutForDesign = (item: OrderDesignItemResponse) => {
+    const targetItemId = item.id || undefined;
+    onClose();
+    navigate(buildLabUrl("/dashboard/die-cut", targetItemId), {
+      state: { order, itemId: targetItemId },
+    });
+  };
+
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      await ordersService.downloadOrderImageFile(order.id, order.image.safe_filename || `${order.order_number}.png`);
+      if (isMultiDesign && activeDesignItem?.id) {
+        await ordersService.downloadOrderItemImageFile(
+          order.id,
+          activeDesignItem.id,
+          activeDesignItem.image.safe_filename ||
+            `${order.order_number}-item-${activeDesignItem.position}.png`
+        );
+      } else {
+        await ordersService.downloadOrderImageFile(
+          order.id,
+          order.image.safe_filename || `${order.order_number}.png`
+        );
+      }
       pushToast({ title: "Descarga iniciada", description: order.order_number, variant: "success" });
     } catch (err) {
       pushToast({
@@ -120,6 +307,66 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
       });
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleExportProduction = async (format: "eps" | "pdf") => {
+    setExportingProduction(format);
+    try {
+      const suffix =
+        format === "pdf"
+          ? "mesas_separadas.pdf"
+          : isRollOrder
+          ? "carriles_rollo.eps"
+          : "hoja_produccion.eps";
+      const res = await imageProcessingService.exportOrderProduction(
+        order.id,
+        format,
+        `${order.order_number}_${suffix}`
+      );
+      pushToast({
+        title:
+          format === "pdf"
+            ? "Mesas separadas (.PDF) exportadas"
+            : isRollOrder
+            ? "Carriles en rollo (.EPS) exportados"
+            : "Trabajo en 1 hoja (.EPS) exportado",
+        description: `${res.filename} (${prepressSummary.enhanced}/${designItems.length} con arte mejorado).`,
+        variant: "success",
+      });
+    } catch (err) {
+      pushToast({
+        title: `No se pudo exportar producción (.${format.toUpperCase()})`,
+        description: err instanceof Error ? err.message : undefined,
+        variant: "error",
+      });
+    } finally {
+      setExportingProduction(null);
+    }
+  };
+
+  const handleExportOrderZip = async () => {
+    setExportingProduction("zip");
+    try {
+      const res = await imageProcessingService.exportOrderZip(
+        order.id,
+        `${order.order_number}_preprensa.zip`
+      );
+      pushToast({
+        title: `Paquete .ZIP descargado (${res.packagedItems || prepressSummary.epsReady}/${
+          res.totalItems || designItems.length
+        } diseños)`,
+        description: res.filename,
+        variant: "success",
+      });
+    } catch (err) {
+      pushToast({
+        title: "No se pudo descargar el paquete .ZIP",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "error",
+      });
+    } finally {
+      setExportingProduction(null);
     }
   };
 
@@ -170,6 +417,39 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
     }
   };
 
+  const handleStartWork = async () => {
+    setStartingWork(true);
+    try {
+      let targetOrder = order;
+      if (order.status === "Pendiente") {
+        targetOrder = await ordersService.updateOrderSales(order.id, {
+          status: "En Diseño",
+        });
+        onUpdated(targetOrder);
+        pushToast({
+          title: `Trabajo ${targetOrder.order_number} iniciado`,
+          description: "Estado actualizado a En Diseño · Abriendo procesamiento de calidad.",
+          variant: "success",
+        });
+      }
+      const focusItemId = activeDesignItem?.id || undefined;
+      onClose();
+      const qs = new URLSearchParams({ orderId: targetOrder.id });
+      if (focusItemId) qs.set("itemId", focusItemId);
+      navigate(`/dashboard/image-enhancer?${qs.toString()}`, {
+        state: { order: targetOrder, itemId: focusItemId },
+      });
+    } catch (err) {
+      pushToast({
+        title: "No se pudo iniciar el trabajo",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "error",
+      });
+    } finally {
+      setStartingWork(false);
+    }
+  };
+
   const cleanPhone = order.phone.replace(/\D/g, "");
   const waHref = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
     `Hola ${order.referral_name}, te escribimos de ${THEME_CONFIG.brand.name} respecto a tu pedido ${order.order_number}.`
@@ -181,12 +461,354 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
       onClose={onClose}
       title={`Pedido ${order.order_number}`}
       subtitle={`Referido: ${order.referral_name} · Recibido ${formatDateTime(order.received_at)}`}
-      maxWidthClass="max-w-4xl"
+      maxWidthClass="max-w-5xl"
     >
+      {/* Prominent Start Work -> Image Quality & CMYK Production Action Bar */}
+      {order.status !== "Cancelado" && (
+        <div className="mb-5 flex flex-col gap-3 rounded-xl border border-dashed border-line-diecut bg-accent-soft/55 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-ink shadow-sm">
+              <Sparkles className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-bold text-ink-primary">
+                {order.status === "Pendiente"
+                  ? "Listo para iniciar producción"
+                  : `Trabajo en curso (${order.status})`}
+              </p>
+              <p className="mt-0.5 text-xs text-ink-secondary">
+                {order.status === "Pendiente"
+                  ? "Inicia el trabajo (pasa automáticamente a En Diseño) y abre su imagen directa en el Laboratorio de Calidad y CMYK."
+                  : "Abre directamente el arte de este trabajo para ajustar resolución, brillo/contraste y tintas CMYK."}
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="md"
+            loading={startingWork}
+            onClick={() => void handleStartWork()}
+            leftIcon={<Play className="h-4 w-4" />}
+            className="shrink-0"
+          >
+            {order.status === "Pendiente" ? "Comenzar trabajo" : "Procesar imagen"}
+          </Button>
+        </div>
+      )}
+
+      {/* Prepress Progress & Per-Design Quick-Access Roster */}
+      <section
+        aria-label="Diseños del pedido y progreso de preprensa"
+        className="mb-5 rounded-xl border border-line-subtle bg-surface-elevated/55 p-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-dashed border-line-subtle pb-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+              <Layers className="h-3.5 w-3.5" aria-hidden="true" />
+            </span>
+            <div>
+              <h3 className="font-display text-xs font-extrabold uppercase tracking-wider text-ink-primary">
+                {isMultiDesign
+                  ? `Diseños y Preprensa (${designItems.length} diseños · ${totalOrderQuantity.toLocaleString()} uds.)`
+                  : "Progreso de Preprensa del Diseño"}
+              </h3>
+              <p className="text-[11px] text-ink-muted">
+                Selecciona un diseño para inspeccionarlo o ábrelo directo en Calidad/CMYK o Troquelado.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-line-subtle bg-surface-card px-2.5 py-1 font-mono text-[11px] font-bold tabular-nums text-ink-secondary">
+              <CheckCircle2 className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+              {prepressSummary.progressed}/{designItems.length} avanzados
+            </span>
+            {isMultiDesign && (
+              <div
+                aria-label={`Avance de preprensa ${prepressProgressPct}%`}
+                className="hidden h-2 w-24 overflow-hidden rounded-full bg-surface-subtle sm:block"
+              >
+                <div
+                  className="h-full rounded-full bg-accent transition-all duration-base ease-studio"
+                  style={{ width: `${prepressProgressPct}%` }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <ul className="mt-3 space-y-2" role="list">
+          {designItems.map((item, idx) => {
+            const isSelected = idx === selectedItemIndex;
+            const formattedPos = String(item.position).padStart(2, "0");
+
+            return (
+              <li
+                key={item.id || `primary-${idx}`}
+                className={`flex flex-col gap-3 rounded-lg border p-3 transition-colors duration-fast ease-studio sm:flex-row sm:items-center sm:justify-between ${
+                  isSelected
+                    ? "border-line-diecut bg-surface-card shadow-xs ring-1 ring-line-diecut/30"
+                    : "border-line-subtle bg-surface-card/70 hover:border-line-strong hover:bg-surface-card"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelectedItemIndex(idx)}
+                  aria-pressed={isSelected}
+                  className="flex min-w-0 flex-1 items-start gap-2.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span
+                    className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-extrabold ${
+                      isSelected
+                        ? "bg-accent text-accent-ink"
+                        : "bg-surface-elevated text-ink-secondary"
+                    }`}
+                  >
+                    {formattedPos}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-bold text-ink-primary">
+                        Diseño #{item.position}
+                      </span>
+                      <span className="rounded border border-dashed border-line-diecut/70 bg-accent-soft/60 px-1.5 py-0.5 font-mono text-[10px] font-bold text-ink-primary">
+                        {item.size_display || item.dimensions || "—"}
+                      </span>
+                      <PrepressStatusBadge status={item.prepress_status} size="xs" />
+                      {item.die_cut_eps_path && (
+                        <span className="rounded-xs border border-line-subtle bg-surface-elevated px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase text-ink-secondary">
+                          .EPS listo
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-ink-muted">
+                      {item.material}
+                      {item.vinyl_gloss_mode ? ` (${item.vinyl_gloss_mode})` : ""} · {item.shape} ·{" "}
+                      {item.size_display || item.dimensions} · {item.quantity.toLocaleString()} uds.
+                    </p>
+                  </div>
+                </button>
+
+                {order.status !== "Cancelado" && (
+                  <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openEnhancerForDesign(item)}
+                      leftIcon={<Sparkles className="h-3.5 w-3.5" />}
+                    >
+                      Mejorar este diseño
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="dieCut"
+                      onClick={() => openDieCutForDesign(item)}
+                      leftIcon={<Scissors className="h-3.5 w-3.5" />}
+                    >
+                      Troquelar este diseño
+                    </Button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+
+        {/* Smart Production Export for Orders with 2 or more designs */}
+        {isMultiDesign && order.status !== "Cancelado" && (
+          <div className="mt-4 space-y-3 rounded-lg border border-dashed border-line-diecut bg-surface-card p-3.5">
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 font-display text-xs font-extrabold uppercase tracking-wider text-ink-primary">
+                    {isRollOrder ? (
+                      <Scroll className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+                    ) : (
+                      <Layers className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+                    )}
+                    <span>Exportación Conjunta de Producción ({designItems.length} diseños)</span>
+                  </span>
+                  <span className="rounded-full border border-line-diecut/60 bg-accent-soft/70 px-2 py-0.5 font-mono text-[10px] font-extrabold text-accent">
+                    {isRollOrder ? "Modo detectado: En rollo" : "Modo detectado: Hoja / Corte"}
+                  </span>
+                </div>
+                <p className="text-xs text-ink-secondary">
+                  {isRollOrder
+                    ? "Pedido con diseños en rollo: exporta mesas separadas (.PDF listo para Illustrator) o carriles en .EPS."
+                    : "Trabajo en hoja/corte: exporta todos los diseños del pedido impuestos en 1 hoja de producción (.EPS)."}
+                </p>
+              </div>
+
+              {/* Pre-Download Summary Counters */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-[10px] font-bold tabular-nums ${
+                    prepressSummary.enhanced === designItems.length
+                      ? "border-preflight-ok-border bg-preflight-ok-bg text-preflight-ok-ink"
+                      : "border-preflight-warn-border bg-preflight-warn-bg text-preflight-warn-ink"
+                  }`}
+                >
+                  <Sparkles className="h-3 w-3" aria-hidden="true" />
+                  <span>
+                    Arte mejorado: {prepressSummary.enhanced}/{designItems.length}
+                  </span>
+                </span>
+
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-mono text-[10px] font-bold tabular-nums ${
+                    prepressSummary.dieCut === designItems.length
+                      ? "border-preflight-ok-border bg-preflight-ok-bg text-preflight-ok-ink"
+                      : "border-line-subtle bg-surface-elevated text-ink-secondary"
+                  }`}
+                >
+                  <Scissors className="h-3 w-3 text-accent" aria-hidden="true" />
+                  <span>
+                    Troquel guardado: {prepressSummary.dieCut}/{designItems.length}
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* Warning before downloading if any design still uses the original unenhanced artwork */}
+            {unenhancedDesignItems.length > 0 && (
+              <div
+                role="status"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-preflight-warn-border bg-preflight-warn-bg/85 px-3 py-2 text-xs text-preflight-warn-ink"
+              >
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>
+                    <strong>Advertencia antes de descargar:</strong>{" "}
+                    {unenhancedDesignItems.length === 1
+                      ? `El diseño #${unenhancedDesignItems[0].position} todavía usa el arte original sin mejorar.`
+                      : `Los diseños ${unenhancedDesignItems
+                          .map((it) => `#${it.position}`)
+                          .join(", ")} todavía usan el arte original sin mejorar.`}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openEnhancerForDesign(unenhancedDesignItems[0])}
+                  className="shrink-0 font-mono text-[11px] font-extrabold underline hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  Mejorar en Lab CMYK →
+                </button>
+              </div>
+            )}
+
+            {/* Smart Production Export Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+              {!isRollOrder ? (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="primary"
+                    loading={exportingProduction === "eps"}
+                    onClick={() => void handleExportProduction("eps")}
+                    leftIcon={<Download className="h-3.5 w-3.5" />}
+                  >
+                    Exportar trabajo en 1 hoja (.EPS)
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={prepressSummary.epsReady === 0}
+                    loading={exportingProduction === "zip"}
+                    onClick={() => void handleExportOrderZip()}
+                    leftIcon={<Archive className="h-3.5 w-3.5" />}
+                  >
+                    .ZIP (1 EPS por diseño) ({prepressSummary.epsReady}/{designItems.length})
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="primary"
+                    loading={exportingProduction === "pdf"}
+                    onClick={() => void handleExportProduction("pdf")}
+                    leftIcon={<FileText className="h-3.5 w-3.5" />}
+                  >
+                    Exportar mesas separadas (.PDF listo para Illustrator)
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    loading={exportingProduction === "eps"}
+                    onClick={() => void handleExportProduction("eps")}
+                    leftIcon={<Scroll className="h-3.5 w-3.5 text-accent" />}
+                  >
+                    Exportar carriles en .EPS
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={prepressSummary.epsReady === 0}
+                    loading={exportingProduction === "zip"}
+                    onClick={() => void handleExportOrderZip()}
+                    leftIcon={<Archive className="h-3.5 w-3.5" />}
+                  >
+                    .ZIP (1 EPS por diseño) ({prepressSummary.epsReady}/{designItems.length})
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Left Column: Artwork & Technical Print Specs */}
         <div className="space-y-4 lg:col-span-5">
           <div className="die-cut-zone overflow-hidden rounded-xl p-3">
+            {hasEnhancedForActive && (
+              <div className="mb-2.5 flex items-center justify-between gap-2">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-ink-muted">
+                  Vista del arte · Diseño #{activeDesignItem?.position ?? 1}
+                </span>
+                <div
+                  role="group"
+                  aria-label="Versión del arte"
+                  className="inline-flex items-center rounded-md border border-line-subtle bg-surface-elevated p-0.5"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={previewVariant === "original"}
+                    onClick={() => setPreviewVariant("original")}
+                    className={`rounded-xs px-2 py-0.5 font-mono text-[10px] font-bold transition-colors ${
+                      previewVariant === "original"
+                        ? "bg-surface-card text-ink-primary shadow-xs"
+                        : "text-ink-muted hover:text-ink-primary"
+                    }`}
+                  >
+                    Original
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={previewVariant === "enhanced"}
+                    onClick={() => setPreviewVariant("enhanced")}
+                    className={`rounded-xs px-2 py-0.5 font-mono text-[10px] font-bold transition-colors ${
+                      previewVariant === "enhanced"
+                        ? "bg-accent text-accent-ink shadow-xs"
+                        : "text-ink-muted hover:text-ink-primary"
+                    }`}
+                  >
+                    Mejorado
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="bg-transparency-grid flex h-56 items-center justify-center overflow-hidden rounded-lg border border-line-subtle p-3">
               {loadingImage ? (
                 <div className="flex flex-col items-center gap-2 text-ink-muted">
@@ -196,7 +818,16 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               ) : imageUrl ? (
                 <img
                   src={imageUrl}
-                  alt={`Arte del pedido ${order.order_number}`}
+                  alt={`Arte del pedido ${order.order_number} · Diseño #${activeDesignItem?.position ?? 1}`}
+                  onLoad={(e) => {
+                    const el = e.currentTarget;
+                    if (el.naturalWidth > 0 && el.naturalHeight > 0) {
+                      setArtworkNaturalSize({
+                        width: el.naturalWidth,
+                        height: el.naturalHeight,
+                      });
+                    }
+                  }}
                   className="max-h-full max-w-full object-contain"
                 />
               ) : (
@@ -210,55 +841,83 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <div className="mt-3 flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="truncate font-mono text-[11px] font-semibold text-ink-primary">
-                  {order.image.original_filename}
+                  {activeImageMeta.original_filename}
                 </p>
                 <p className="font-mono text-[10px] text-ink-muted">
-                  {order.image.content_type} · {(order.image.size_bytes / 1024).toFixed(0)} KB
+                  {activeImageMeta.content_type} · {(activeImageMeta.size_bytes / 1024).toFixed(0)}{" "}
+                  KB
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                loading={downloading}
-                onClick={handleDownload}
-                leftIcon={<Download className="h-3.5 w-3.5" />}
-              >
-                Descargar
-              </Button>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  loading={downloading}
+                  onClick={handleDownload}
+                  leftIcon={<Download className="h-3.5 w-3.5" />}
+                >
+                  Descargar
+                </Button>
+              </div>
             </div>
           </div>
 
           <div className="rounded-xl border border-line-subtle bg-surface-elevated/60 p-4 text-xs">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <span className="font-bold uppercase tracking-wider text-ink-secondary">
-                Ficha Técnica
+                {isMultiDesign && activeDesignItem
+                  ? `Ficha Técnica · Diseño #${activeDesignItem.position}`
+                  : "Ficha Técnica"}
               </span>
               <StickerBadge status={order.status} />
             </div>
 
             <dl className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-ink-muted">Preprensa</dt>
+                <dd>
+                  <PrepressStatusBadge status={activeDesignItem?.prepress_status} size="xs" />
+                </dd>
+              </div>
               <div className="flex justify-between gap-2">
                 <dt className="text-ink-muted">Material</dt>
                 <dd className="text-right font-semibold text-ink-primary">
-                  {order.material}
-                  {order.vinyl_gloss_mode ? ` · ${order.vinyl_gloss_mode}` : ""}
+                  {activeMaterial}
+                  {activeVinylGlossMode ? ` · ${activeVinylGlossMode}` : ""}
                 </dd>
               </div>
               <div className="flex justify-between gap-2">
                 <dt className="text-ink-muted">Forma</dt>
-                <dd className="font-semibold text-ink-primary">{order.shape}</dd>
+                <dd className="font-semibold text-ink-primary">{activeShape}</dd>
               </div>
               <div className="flex justify-between gap-2">
                 <dt className="text-ink-muted">Medida</dt>
-                <dd className="font-mono font-bold text-ink-primary">{order.size_display}</dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-ink-muted">Cantidad</dt>
-                <dd className="font-mono font-bold text-ink-primary">
-                  {order.quantity.toLocaleString()} uds.
+                <dd className="text-right font-mono font-bold text-ink-primary">
+                  <span>{activeSizeDisplay}</span>
+                  {activeResolvedMeasure.proportionalHint && (
+                    <span className="mt-0.5 block text-[10px] font-semibold text-accent">
+                      {activeResolvedMeasure.livePreviewText}
+                    </span>
+                  )}
                 </dd>
               </div>
+              <div className="flex justify-between gap-2">
+                <dt className="text-ink-muted">
+                  {isMultiDesign ? "Cantidad (este diseño)" : "Cantidad"}
+                </dt>
+                <dd className="font-mono font-bold text-ink-primary">
+                  {activeQuantity.toLocaleString()} uds.
+                </dd>
+              </div>
+              {isMultiDesign && (
+                <div className="flex justify-between gap-2">
+                  <dt className="text-ink-muted">Total del pedido</dt>
+                  <dd className="font-mono font-bold text-accent">
+                    {designItems.length} diseños · {totalOrderQuantity.toLocaleString()} uds.
+                  </dd>
+                </div>
+              )}
               <div className="flex justify-between gap-2 border-t border-line-subtle pt-2">
                 <dt className="flex items-center gap-1 text-ink-muted">
                   <CalendarClock className="h-3.5 w-3.5" />
@@ -372,7 +1031,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 {...register("notes")}
               />
               {errors.notes && (
-                <p className="text-xs font-semibold text-brand-800 dark:text-brand-200">
+                <p role="alert" className="text-xs font-semibold text-ink-primary">
                   • {errors.notes.message}
                 </p>
               )}

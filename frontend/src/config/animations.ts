@@ -128,3 +128,43 @@ export const conditionalFieldVariants: Variants = ANIMATIONS_ENABLED
 export const stickerTapInteraction = ANIMATIONS_ENABLED
   ? { whileHover: { y: -2 }, whileTap: { scale: 0.985 } }
   : {};
+
+/**
+ * Elastic "slap / stick" entrance for newly added sticker design spec cards:
+ * starts slightly lifted & tilted as if peeled from backing, then snaps onto
+ * the cutting mat with a tactile spring bounce.
+ */
+export const stickerSlapVariants: Variants = ANIMATIONS_ENABLED
+  ? {
+      initial: {
+        opacity: 0,
+        scale: 1.045,
+        y: -16,
+        rotate: -1.35,
+      },
+      animate: {
+        opacity: 1,
+        scale: 1,
+        y: 0,
+        rotate: 0,
+        transition: {
+          type: "spring",
+          stiffness: 460,
+          damping: 24,
+          mass: 0.72,
+          opacity: { duration: 0.18, ease: MOTION_EASE },
+        },
+      },
+      exit: {
+        opacity: 0,
+        scale: 0.96,
+        y: -10,
+        rotate: 0.9,
+        transition: { duration: 0.2, ease: MOTION_EASE },
+      },
+    }
+  : {
+      initial: { opacity: 1 },
+      animate: { opacity: 1 },
+      exit: { opacity: 0 },
+    };

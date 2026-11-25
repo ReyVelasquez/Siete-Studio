@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_user
+from app.core.security import require_staff
 from app.db.database import get_db
 from app.schemas.material import (
     MaterialCreateInput,
@@ -28,7 +28,7 @@ async def list_public_materials(db: Session = Depends(get_db)) -> MaterialListRe
 @router.get(
     "/admin/materials",
     response_model=MaterialListResponse,
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_staff)],
     summary="Listar catálogo completo de materiales con conteo de pedidos",
 )
 async def list_admin_materials(db: Session = Depends(get_db)) -> MaterialListResponse:
@@ -39,7 +39,7 @@ async def list_admin_materials(db: Session = Depends(get_db)) -> MaterialListRes
     "/admin/materials",
     response_model=MaterialResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_staff)],
     summary="Crear nuevo material en el catálogo",
 )
 async def create_material(
@@ -52,7 +52,7 @@ async def create_material(
 @router.patch(
     "/admin/materials/{material_id}",
     response_model=MaterialResponse,
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_staff)],
     summary="Actualizar material existente",
 )
 async def update_material(
@@ -66,7 +66,7 @@ async def update_material(
 @router.delete(
     "/admin/materials/{material_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_staff)],
     summary="Eliminar material (protegido por FK ON DELETE RESTRICT si tiene pedidos)",
 )
 async def delete_material(

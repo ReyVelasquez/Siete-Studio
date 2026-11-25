@@ -93,11 +93,55 @@ class StorageService:
         logger.info("Imagen guardada en almacenamiento local seguro: %s", image.storage_path)
         return image.storage_path
 
+    def upload_binary_artifact(
+        self,
+        storage_path: str,
+        content: bytes,
+        content_type: str,
+        *,
+        metadata: dict[str, str] | None = None,
+    ) -> str:
+        """Upload a derived prepress artifact (enhanced PNG, 2-layer EPS, etc.) safely."""
+        settings = get_settings()
+
+        if self._should_use_firebase_bucket():
+            try:
+                bucket = get_storage_bucket()
+                blob = bucket.blob(storage_path)
+                if metadata:
+                    blob.metadata = metadata
+                blob.upload_from_string(content, content_type=content_type)
+                return storage_path
+            except FirebaseNotConfiguredError as exc:
+                if settings.STORAGE_BACKEND == "firebase":
+                    logger.error("Artifact upload blocked - Firebase not configured: %s", exc)
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Almacenamiento de archivos no configurado en el servidor.",
+                    ) from exc
+            except Exception as exc:
+                if settings.STORAGE_BACKEND == "firebase":
+                    logger.exception("Error uploading prepress artifact to Firebase Storage.")
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail="No se pudo guardar el archivo de preprensa. Intenta nuevamente.",
+                    ) from exc
+                logger.warning(
+                    "Firebase Storage no disponible; usando almacenamiento local para %s.",
+                    storage_path,
+                )
+
+        local_target = self._safe_local_path(storage_path)
+        local_target.parent.mkdir(parents=True, exist_ok=True)
+        local_target.write_bytes(content)
+        logger.info("Artefacto de preprensa guardado en almacenamiento local seguro: %s", storage_path)
+        return storage_path
+
     def download_order_image(self, storage_path: str) -> Tuple[bytes, str]:
         """Download image bytes and content-type from Firebase Storage or local fallback."""
         settings = get_settings()
 
-        if settings.STORAGE_BACKEND != "local":
+        if self._should_use_firebase_bucket():
             try:
                 bucket = get_storage_bucket()
                 if bucket.exists():
@@ -132,15 +176,16 @@ class StorageService:
         )
 
     def delete_order_image(self, storage_path: str) -> None:
-        """Best-effort cleanup if a Firestore write fails after upload."""
-        try:
-            bucket = get_storage_bucket()
-            if bucket.exists():
-                blob = bucket.blob(storage_path)
-                if blob.exists():
-                    blob.delete()
-        except Exception:
-            pass
+        """Best-effort cleanup if a DB write fails after upload or an order/artifact is removed."""
+        if self._should_use_firebase_bucket():
+            try:
+                bucket = get_storage_bucket()
+                if bucket.exists():
+                    blob = bucket.blob(storage_path)
+                    if blob.exists():
+                        blob.delete()
+            except Exception:
+                pass
 
         try:
             local_file = self._safe_local_path(storage_path)

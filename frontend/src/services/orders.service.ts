@@ -1,4 +1,5 @@
 import { apiFetchBlob, apiRequest } from "./api";
+import { resolveDesignMeasureSpec } from "@/schemas/order.schema";
 import type {
   DashboardSummary,
   OrderItem,
@@ -9,8 +10,32 @@ import type {
   PublicOrderConfirmation,
   StickerMaterial,
   StickerShape,
+  StickerSizeMode,
   VinylGlossMode,
 } from "@/types/order";
+
+export interface SubmitOrderDesignItem {
+  material: StickerMaterial;
+  vinyl_gloss_mode?: VinylGlossMode | null;
+  shape: StickerShape;
+  diameter_cm?: string;
+  size_mode?: StickerSizeMode;
+  height_cm?: string | number;
+  width_cm?: string | number;
+  dimensions?: string;
+  quantity: number;
+  image: File;
+  image_index?: number;
+}
+
+export interface SubmitMultiDesignOrderPayload {
+  referral_name: string;
+  phone: string;
+  delivery_date: string;
+  delivery_hour: string;
+  items: SubmitOrderDesignItem[];
+  uniqueImages?: File[];
+}
 
 export interface SubmitOrderPayload {
   referral_name: string;
@@ -26,7 +51,7 @@ export interface SubmitOrderPayload {
   image: File;
 }
 
-export interface SubmitAdminQuickOrderPayload extends SubmitOrderPayload {
+export interface SubmitAdminQuickOrderPayload extends SubmitMultiDesignOrderPayload {
   total_price?: number;
   advance_payment?: number;
   payment_method?: PaymentMethod;
@@ -54,32 +79,126 @@ function buildExactHourIso(deliveryDate: string, deliveryHour: string): string {
   return `${deliveryDate}T${deliveryHour}:00${sign}${hh}:${mm}`;
 }
 
-function buildOrderFormData(payload: SubmitOrderPayload): FormData {
+function buildMultiDesignOrderFormData(payload: SubmitMultiDesignOrderPayload): FormData {
   const form = new FormData();
   form.append("referral_name", payload.referral_name.trim());
   form.append("phone", payload.phone.trim());
-  form.append("material", payload.material);
-  if (payload.material === "Vinilo Brillo" && payload.vinyl_gloss_mode) {
-    form.append("vinyl_gloss_mode", payload.vinyl_gloss_mode);
-  }
-  form.append("shape", payload.shape);
-  if (payload.shape === "Circular" && payload.diameter_cm) {
-    form.append("diameter_cm", payload.diameter_cm.replace(",", "."));
-  } else if (payload.shape !== "Circular" && payload.dimensions) {
-    form.append("dimensions", payload.dimensions.trim());
-  }
-  form.append("quantity", String(payload.quantity));
   form.append(
     "delivery_datetime",
     buildExactHourIso(payload.delivery_date, payload.delivery_hour)
   );
-  form.append("image", payload.image);
+
+  const usesImageIndex = payload.items.some((it) => typeof it.image_index === "number");
+  const uniqueUploadFiles: File[] =
+    payload.uniqueImages && payload.uniqueImages.length > 0 ? [...payload.uniqueImages] : [];
+
+  const resolveFileUploadIndex = (file: File, explicitIndex?: number): number | undefined => {
+    if (!usesImageIndex) return undefined;
+    if (
+      typeof explicitIndex === "number" &&
+      payload.uniqueImages &&
+      payload.uniqueImages[explicitIndex]
+    ) {
+      return explicitIndex;
+    }
+    const foundIdx = uniqueUploadFiles.findIndex(
+      (f) =>
+        f === file ||
+        (f.name === file.name && f.size === file.size && f.lastModified === file.lastModified)
+    );
+    if (foundIdx >= 0) return foundIdx;
+    const nextIdx = uniqueUploadFiles.length;
+    uniqueUploadFiles.push(file);
+    return nextIdx;
+  };
+
+  const serializedItems = payload.items.map((item) => {
+    const isVinylGloss = item.material === "Vinilo Brillo";
+    const isCircular = item.shape === "Circular";
+    const resolvedImageIndex = resolveFileUploadIndex(item.image, item.image_index);
+    const parsedDiameter =
+      isCircular && item.diameter_cm
+        ? Number(item.diameter_cm.trim().replace(",", "."))
+        : null;
+
+    if (isCircular) {
+      return {
+        material: item.material,
+        vinyl_gloss_mode: isVinylGloss ? (item.vinyl_gloss_mode ?? null) : null,
+        shape: item.shape,
+        diameter_cm:
+          parsedDiameter !== null && Number.isFinite(parsedDiameter) ? parsedDiameter : null,
+        dimensions: null,
+        quantity: Number(item.quantity),
+        ...(resolvedImageIndex !== undefined ? { image_index: resolvedImageIndex } : {}),
+      };
+    }
+
+    const resolvedMeasure = resolveDesignMeasureSpec({
+      shape: item.shape,
+      size_mode: item.size_mode ?? "both",
+      height_cm: item.height_cm,
+      width_cm: item.width_cm,
+      dimensions: item.dimensions,
+    });
+
+    return {
+      material: item.material,
+      vinyl_gloss_mode: isVinylGloss ? (item.vinyl_gloss_mode ?? null) : null,
+      shape: item.shape,
+      diameter_cm: null,
+      size_mode: resolvedMeasure.effectiveMode,
+      height_cm:
+        resolvedMeasure.effectiveMode === "both" || resolvedMeasure.effectiveMode === "height_only"
+          ? resolvedMeasure.heightCm
+          : null,
+      width_cm:
+        resolvedMeasure.effectiveMode === "both" || resolvedMeasure.effectiveMode === "width_only"
+          ? resolvedMeasure.widthCm
+          : null,
+      dimensions: resolvedMeasure.normalizedDimensions,
+      quantity: Number(item.quantity),
+      ...(resolvedImageIndex !== undefined ? { image_index: resolvedImageIndex } : {}),
+    };
+  });
+
+  form.append("items", JSON.stringify(serializedItems));
+  if (usesImageIndex && uniqueUploadFiles.length > 0) {
+    for (const uniqueFile of uniqueUploadFiles) {
+      form.append("images", uniqueFile);
+    }
+  } else {
+    for (const item of payload.items) {
+      form.append("images", item.image);
+    }
+  }
   return form;
 }
 
+function triggerBlobDownload(blob: Blob, fallbackFilename: string, contentDisposition: string | null) {
+  let filename = fallbackFilename;
+  if (contentDisposition) {
+    const match = /filename="([^"]+)"/i.exec(contentDisposition);
+    if (match?.[1]) {
+      filename = match[1];
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
 export const ordersService = {
-  async createPublicOrder(payload: SubmitOrderPayload): Promise<PublicOrderConfirmation> {
-    const formData = buildOrderFormData(payload);
+  async createPublicOrder(
+    payload: SubmitMultiDesignOrderPayload
+  ): Promise<PublicOrderConfirmation> {
+    const formData = buildMultiDesignOrderFormData(payload);
     return apiRequest<PublicOrderConfirmation>("/public/orders", {
       method: "POST",
       body: formData,
@@ -109,8 +228,15 @@ export const ordersService = {
     });
   },
 
+  async getOrderById(orderId: string): Promise<OrderItem> {
+    return apiRequest<OrderItem>(`/admin/orders/${orderId}`, {
+      method: "GET",
+      requireAuth: true,
+    });
+  },
+
   async createAdminQuickOrder(payload: SubmitAdminQuickOrderPayload): Promise<OrderItem> {
-    const formData = buildOrderFormData(payload);
+    const formData = buildMultiDesignOrderFormData(payload);
     formData.append("total_price", String(payload.total_price ?? 0));
     formData.append("advance_payment", String(payload.advance_payment ?? 0));
     formData.append("payment_method", payload.payment_method ?? "Pendiente");
@@ -144,9 +270,25 @@ export const ordersService = {
     });
   },
 
-  async fetchOrderImageObjectUrl(orderId: string): Promise<string> {
+  async fetchOrderImageObjectUrl(
+    orderId: string,
+    variant?: "original" | "enhanced"
+  ): Promise<string> {
     const { blob } = await apiFetchBlob(`/admin/orders/${orderId}/image`, {
       requireAuth: true,
+      query: variant ? { variant } : undefined,
+    });
+    return URL.createObjectURL(blob);
+  },
+
+  async fetchOrderItemImageObjectUrl(
+    orderId: string,
+    itemId: string,
+    variant?: "original" | "enhanced"
+  ): Promise<string> {
+    const { blob } = await apiFetchBlob(`/admin/orders/${orderId}/items/${itemId}/image`, {
+      requireAuth: true,
+      query: variant ? { variant } : undefined,
     });
     return URL.createObjectURL(blob);
   },
@@ -156,22 +298,21 @@ export const ordersService = {
       requireAuth: true,
       query: { download: true },
     });
+    triggerBlobDownload(blob, fallbackFilename, contentDisposition);
+  },
 
-    let filename = fallbackFilename;
-    if (contentDisposition) {
-      const match = /filename="([^"]+)"/i.exec(contentDisposition);
-      if (match?.[1]) {
-        filename = match[1];
+  async downloadOrderItemImageFile(
+    orderId: string,
+    itemId: string,
+    fallbackFilename: string
+  ): Promise<void> {
+    const { blob, contentDisposition } = await apiFetchBlob(
+      `/admin/orders/${orderId}/items/${itemId}/image`,
+      {
+        requireAuth: true,
+        query: { download: true },
       }
-    }
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    );
+    triggerBlobDownload(blob, fallbackFilename, contentDisposition);
   },
 };

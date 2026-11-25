@@ -4,7 +4,9 @@
  */
 
 export const env = {
-  apiBaseUrl: (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1").replace(/\/+$/, ""),
+  apiBaseUrl: (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1")
+    .trim()
+    .replace(/\/+$/, ""),
   firebase: {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
     authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",

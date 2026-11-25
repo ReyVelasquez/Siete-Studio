@@ -27,7 +27,7 @@ class AuthenticatedUser(BaseModel):
     db_user_id: Optional[int] = None
     email: Optional[str] = None
     name: Optional[str] = None
-    role: str = "operador"
+    role: str = "cliente"
     email_verified: bool = False
     is_active: bool = True
     sign_in_provider: Optional[str] = None
@@ -86,6 +86,21 @@ async def get_current_user(
         is_active=bool(db_user.is_active),
         sign_in_provider=db_user.auth_provider,
     )
+
+
+STAFF_ROLES = frozenset({"admin", "operador"})
+
+
+async def require_staff(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
+    """RBAC dependency restricting internal workshop endpoints to `admin` and `operador` roles."""
+    if current_user.role not in STAFF_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permisos insuficientes. Esta operación requiere rol de personal del taller (Administrador u Operador).",
+        )
+    return current_user
 
 
 async def require_admin(

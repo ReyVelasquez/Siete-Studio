@@ -45,8 +45,14 @@ class Settings(BaseSettings):
     )
 
     # Firebase Admin credentials (never hardcoded)
-    FIREBASE_CREDENTIALS_PATH: Optional[str] = None
-    FIREBASE_CREDENTIALS_JSON: Optional[str] = None
+    FIREBASE_CREDENTIALS_PATH: Optional[str] = Field(
+        default=None,
+        description="Local path to Firebase service account JSON file (recommended for local development).",
+    )
+    FIREBASE_CREDENTIALS_JSON: Optional[str] = Field(
+        default=None,
+        description="Firebase service account credentials as a single-line JSON string or Base64-encoded JSON (recommended for cloud).",
+    )
     FIREBASE_STORAGE_BUCKET: Optional[str] = None
     STORAGE_BACKEND: str = Field(
         default="auto",
@@ -56,6 +62,13 @@ class Settings(BaseSettings):
 
     # Upload & Business Rules
     MAX_UPLOAD_SIZE_MB: int = Field(default=10, ge=1, le=25)
+    MAX_ORDER_ITEMS: int = Field(default=20, ge=1, le=20)
+    MAX_TOTAL_ORDER_UPLOAD_MB: int = Field(default=60, ge=1, le=200)
+    MAX_ITEMS_JSON_BYTES: int = Field(default=65536, ge=1024, le=128 * 1024)
+    FIRESTORE_SYNC_ENABLED: bool = Field(
+        default=True,
+        description="Mirror master-detail orders into Firestore 'orders' collection when Firebase is configured.",
+    )
     DELIVERY_HOUR_START: int = Field(default=8, ge=0, le=23)
     DELIVERY_HOUR_END: int = Field(default=20, ge=0, le=23)
     TIMEZONE_OFFSET_MINUTES: int = Field(
@@ -84,6 +97,10 @@ class Settings(BaseSettings):
     @property
     def max_upload_size_bytes(self) -> int:
         return self.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+    @property
+    def max_total_order_upload_bytes(self) -> int:
+        return self.MAX_TOTAL_ORDER_UPLOAD_MB * 1024 * 1024
 
     @field_validator("DELIVERY_HOUR_END")
     @classmethod

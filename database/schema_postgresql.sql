@@ -116,6 +116,9 @@ CREATE TABLE IF NOT EXISTS orders (
     vinyl_gloss_mode   VARCHAR(30),
     shape_id           INTEGER        NOT NULL REFERENCES shapes(id) ON DELETE RESTRICT,
     diameter_cm        NUMERIC(6, 2),
+    size_mode          VARCHAR(20),
+    height_cm          NUMERIC(6, 2),
+    width_cm           NUMERIC(6, 2),
     dimensions         VARCHAR(40),
     size_display       VARCHAR(50)    NOT NULL,
     quantity           INTEGER        NOT NULL,
@@ -196,6 +199,80 @@ CREATE TABLE IF NOT EXISTS order_images (
     ),
     CONSTRAINT chk_order_images_size CHECK (size_bytes > 0 AND size_bytes <= 10485760)
 );
+
+-- -----------------------------------------------------------------------------
+-- 7b. ORDER_ITEMS (Modelo Maestro-Detalle: N diseños de stickers por pedido)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS order_items (
+    id                      SERIAL PRIMARY KEY,
+    order_id                INTEGER       NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    position                INTEGER       NOT NULL DEFAULT 1,
+    material_id             INTEGER       NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
+    vinyl_gloss_mode        VARCHAR(30),
+    shape_id                INTEGER       NOT NULL REFERENCES shapes(id) ON DELETE RESTRICT,
+    diameter_cm             NUMERIC(6, 2),
+    size_mode               VARCHAR(20),
+    height_cm               NUMERIC(6, 2),
+    width_cm                NUMERIC(6, 2),
+    dimensions              VARCHAR(40),
+    size_display            VARCHAR(50)   NOT NULL,
+    quantity                INTEGER       NOT NULL,
+    image_storage_path      VARCHAR(300)  NOT NULL,
+    image_safe_filename     VARCHAR(160)  NOT NULL,
+    image_original_filename VARCHAR(160)  NOT NULL,
+    image_content_type      VARCHAR(60)   NOT NULL,
+    image_size_bytes        INTEGER       NOT NULL,
+    image_uploaded_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    enhanced_storage_path   VARCHAR(300),
+    die_cut_anchors_json    TEXT,
+    die_cut_eps_path        VARCHAR(300),
+    prepress_status         VARCHAR(30)   NOT NULL DEFAULT 'pendiente',
+
+    CONSTRAINT uq_order_items_order_position UNIQUE (order_id, position),
+    CONSTRAINT chk_order_items_position CHECK (position >= 1),
+    CONSTRAINT chk_order_items_gloss_mode CHECK (
+        vinyl_gloss_mode IS NULL OR vinyl_gloss_mode IN ('En rollo', 'Corte uno a uno')
+    ),
+    CONSTRAINT chk_order_items_size_xor CHECK (
+        (diameter_cm IS NOT NULL AND dimensions IS NULL)
+        OR (diameter_cm IS NULL AND dimensions IS NOT NULL)
+    ),
+    CONSTRAINT chk_order_items_diameter_range CHECK (
+        diameter_cm IS NULL OR (diameter_cm >= 0.5 AND diameter_cm <= 500)
+    ),
+    CONSTRAINT chk_order_items_size_mode CHECK (
+        size_mode IS NULL OR size_mode IN ('both', 'height_only', 'width_only')
+    ),
+    CONSTRAINT chk_order_items_height_range CHECK (
+        height_cm IS NULL OR (height_cm >= 0.5 AND height_cm <= 500)
+    ),
+    CONSTRAINT chk_order_items_width_range CHECK (
+        width_cm IS NULL OR (width_cm >= 0.5 AND width_cm <= 500)
+    ),
+    CONSTRAINT chk_order_items_quantity CHECK (quantity >= 1 AND quantity <= 1000000),
+    CONSTRAINT chk_order_items_image_mime CHECK (
+        image_content_type IN ('image/png', 'image/jpeg', 'image/webp', 'image/svg+xml')
+    ),
+    CONSTRAINT chk_order_items_image_size CHECK (
+        image_size_bytes > 0 AND image_size_bytes <= 10485760
+    ),
+    CONSTRAINT chk_order_items_prepress_status CHECK (
+        prepress_status IN ('pendiente', 'mejorado', 'troquelado', 'listo_pliego')
+    )
+);
+
+-- Migración idempotente de columnas de preprensa y modo de medida no destructiva sobre bases existentes
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS size_mode VARCHAR(20);
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS height_cm NUMERIC(6, 2);
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS width_cm NUMERIC(6, 2);
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS enhanced_storage_path VARCHAR(300);
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS die_cut_anchors_json TEXT;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS die_cut_eps_path VARCHAR(300);
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS prepress_status VARCHAR(30) NOT NULL DEFAULT 'pendiente';
+
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_material_id ON order_items(material_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_shape_id ON order_items(shape_id);
 
 -- -----------------------------------------------------------------------------
 -- 8. ORDER_STATUS_HISTORY (Bitácora auditable de cambios de estado)

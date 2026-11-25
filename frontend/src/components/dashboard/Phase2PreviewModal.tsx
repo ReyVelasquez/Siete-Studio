@@ -39,8 +39,8 @@ export const Phase2PreviewModal: React.FC<Phase2PreviewModalProps> = ({
     <Modal
       isOpen={Boolean(selectedModuleId)}
       onClose={onClose}
-      title={moduleMeta ? `${moduleMeta.title} · Próximamente` : "Módulo Fase 2"}
-      subtitle="Arquitectura modular preparada en backend/app/modules/image_processing/"
+      title={moduleMeta ? moduleMeta.title : "Estudio de Preprensa"}
+      subtitle="Herramientas digitales de preprensa y producción del taller"
       maxWidthClass="max-w-xl"
     >
       {moduleMeta && (

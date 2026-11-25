@@ -2,10 +2,14 @@ import React, { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useSearchParams } from "react-router-dom";
 import {
+  AlertCircle,
+  Clock,
   FilterX,
+  Inbox,
   LayoutGrid,
   Plus,
   RefreshCw,
+  Scissors,
   Search,
   Table2,
 } from "lucide-react";
@@ -21,6 +25,13 @@ import { Select } from "@/components/ui/Select";
 import { StickerCard } from "@/components/ui/StickerCard";
 import { useOrders } from "@/hooks/useOrders";
 import type { OrderItem, OrderStatus, StickerMaterial, StickerShape } from "@/types/order";
+
+const QUICK_STATUS_FILTERS: readonly OrderStatus[] = [
+  "Pendiente",
+  "En Diseño",
+  "Troquelado",
+  "Listo",
+];
 
 export const OrdersManagementPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -50,6 +61,7 @@ export const OrdersManagementPage: React.FC = () => {
   const totals = useMemo(() => {
     return orders.reduce(
       (acc, o) => {
+        acc.designs += Math.max(1, o.items_count ?? o.items?.length ?? 1);
         if (o.status !== "Cancelado") {
           acc.sales += o.total_price;
           acc.advance += o.advance_payment;
@@ -57,7 +69,7 @@ export const OrdersManagementPage: React.FC = () => {
         }
         return acc;
       },
-      { sales: 0, advance: 0, balance: 0 }
+      { sales: 0, advance: 0, balance: 0, designs: 0 }
     );
   }, [orders]);
 
@@ -81,71 +93,149 @@ export const OrdersManagementPage: React.FC = () => {
       animate="animate"
       className="space-y-6"
     >
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-extrabold tracking-tight text-ink-primary">
-            Gestión de Pedidos y Ventas
-          </h1>
-          <p className="mt-0.5 text-xs text-ink-muted">
-            Ordenados por prioridad de entrega · Edita precios, adelantos y estados en un clic.
-          </p>
-        </div>
+      {/* Band 1: Command Header with Prominent Quick Actions */}
+      <StickerCard padding="md" className="bg-print-grid overflow-hidden">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-line-diecut/75 bg-surface-card px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-accent shadow-xs">
+                <Scissors className="h-3 w-3" aria-hidden="true" />
+                Cola de Producción · Ventas
+              </span>
+              <span className="sticker-badge inline-flex items-center gap-1.5 rounded-full border border-dashed border-line-diecut bg-accent-soft px-2.5 py-0.5 font-mono text-[11px] font-bold tabular-nums text-ink-primary">
+                <Clock className="h-3 w-3 text-accent" aria-hidden="true" />
+                {total} pedido(s)
+                {totals.designs > total ? ` · ${totals.designs} diseños` : ""}
+              </span>
+            </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-md border border-line-subtle bg-surface-card p-1">
-            <button
-              type="button"
-              onClick={() => setViewMode("table")}
-              aria-label="Vista tabla"
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
-                viewMode === "table"
-                  ? "bg-accent text-accent-ink"
-                  : "text-ink-muted hover:text-ink-primary"
-              }`}
-            >
-              <Table2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Tabla</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("cards")}
-              aria-label="Vista tarjetas"
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold transition-colors ${
-                viewMode === "cards"
-                  ? "bg-accent text-accent-ink"
-                  : "text-ink-muted hover:text-ink-primary"
-              }`}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Tarjetas</span>
-            </button>
+            <div>
+              <h1 className="font-display text-2xl font-extrabold tracking-tight text-ink-primary sm:text-3xl">
+                Gestión de Pedidos y Ventas
+              </h1>
+              <p className="mt-0.5 text-xs text-ink-secondary sm:text-sm">
+                Ordenados por prioridad de entrega · Edita precios, adelantos y estados en un clic.
+              </p>
+            </div>
           </div>
 
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void refetch()}
-            loading={loading}
-            leftIcon={<RefreshCw className="h-3.5 w-3.5" />}
-          >
-            Refrescar
-          </Button>
+          <div className="flex flex-wrap items-center gap-2.5 lg:shrink-0">
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              onClick={() => setQuickOrderOpen(true)}
+              leftIcon={<Plus className="h-4 w-4" />}
+            >
+              Nuevo Pedido Rápido
+            </Button>
 
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => setQuickOrderOpen(true)}
-            leftIcon={<Plus className="h-4 w-4" />}
-          >
-            Nuevo Pedido Rápido
-          </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="md"
+              onClick={() => void refetch()}
+              loading={loading}
+              leftIcon={<RefreshCw className="h-4 w-4" />}
+            >
+              Refrescar
+            </Button>
+
+            <div
+              role="group"
+              aria-label="Modo de visualización"
+              className="inline-flex h-11 items-center rounded-md border border-line-subtle bg-surface-card p-1 shadow-xs"
+            >
+              <button
+                type="button"
+                onClick={() => setViewMode("table")}
+                aria-label="Vista tabla"
+                aria-pressed={viewMode === "table"}
+                className={`inline-flex h-full items-center gap-1.5 rounded-sm px-3 text-xs font-semibold transition-all duration-fast ease-studio focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  viewMode === "table"
+                    ? "bg-accent text-accent-ink shadow-xs"
+                    : "text-ink-muted hover:bg-surface-elevated hover:text-ink-primary"
+                }`}
+              >
+                <Table2 className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="hidden sm:inline">Tabla</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("cards")}
+                aria-label="Vista tarjetas"
+                aria-pressed={viewMode === "cards"}
+                className={`inline-flex h-full items-center gap-1.5 rounded-sm px-3 text-xs font-semibold transition-all duration-fast ease-studio focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  viewMode === "cards"
+                    ? "bg-accent text-accent-ink shadow-xs"
+                    : "text-ink-muted hover:bg-surface-elevated hover:text-ink-primary"
+                }`}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="hidden sm:inline">Tarjetas</span>
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      </StickerCard>
 
-      {/* Filters Toolbar */}
-      <StickerCard padding="sm">
+      {/* Band 2: Priority Quick-Filter & Search Console */}
+      <StickerCard dieCut registrationMarks padding="md" className="space-y-4">
+        {/* Top Quick-Access Stage & Active-Jobs Pills */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-dashed border-line-subtle pb-3.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              aria-pressed={onlyPending}
+              onClick={() => setOnlyPending((prev) => !prev)}
+              className={`sticker-badge inline-flex items-center gap-1.5 rounded-full border-[1.5px] px-3 py-1 text-xs font-bold transition-all duration-fast ease-studio hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-card ${
+                onlyPending
+                  ? "border-accent bg-accent text-accent-ink shadow-sticker"
+                  : "border-dashed border-line-diecut/80 bg-accent-soft/60 text-ink-primary hover:border-line-diecut hover:bg-accent-soft"
+              }`}
+            >
+              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Solo trabajos activos</span>
+            </button>
+
+            <span
+              aria-hidden="true"
+              className="hidden h-4 w-px bg-line-subtle sm:inline-block"
+            />
+
+            {QUICK_STATUS_FILTERS.map((st) => {
+              const active = statusFilter === st;
+              return (
+                <button
+                  key={st}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setStatusFilter((prev) => (prev === st ? "" : st))}
+                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold transition-all duration-fast ease-studio hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    active
+                      ? "border-accent bg-accent text-accent-ink shadow-xs"
+                      : "border-line-subtle bg-surface-card text-ink-secondary hover:border-line-diecut hover:bg-surface-elevated hover:text-ink-primary"
+                  }`}
+                >
+                  {st}
+                </button>
+              );
+            })}
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex items-center gap-1.5 rounded-full border border-line-subtle bg-surface-elevated px-3 py-1 text-xs font-semibold text-ink-secondary transition-all duration-fast ease-studio hover:border-line-strong hover:text-ink-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <FilterX className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+              <span>Limpiar filtros</span>
+            </button>
+          )}
+        </div>
+
+        {/* Search & Facet Selectors */}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
           <div className="md:col-span-4">
             <Input
@@ -202,45 +292,24 @@ export const OrdersManagementPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line-subtle pt-3 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setOnlyPending((prev) => !prev)}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                onlyPending
-                  ? "border-accent bg-accent text-accent-ink"
-                  : "border-line-strong bg-surface-elevated text-ink-secondary hover:text-ink-primary"
-              }`}
-            >
-              Solo trabajos activos (sin entregar)
-            </button>
+        {/* Consolidated Totals Strip */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-dashed border-line-subtle pt-3 text-xs">
+          <span className="font-mono text-[11px] text-ink-muted">
+            Mostrando <strong className="tabular-nums text-ink-primary">{total}</strong> resultado(s)
+          </span>
 
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-ink-muted hover:bg-surface-elevated hover:text-ink-primary"
-              >
-                <FilterX className="h-3.5 w-3.5" />
-                Limpiar filtros
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4 font-mono text-[11px] text-ink-secondary">
-            <span>
-              Mostrando <strong className="text-ink-primary">{total}</strong>
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] tabular-nums">
+            <span className="rounded-md border border-line-subtle bg-surface-elevated/70 px-2.5 py-1 text-ink-secondary">
+              Ventas:{" "}
+              <strong className="text-ink-primary">{formatCurrency(totals.sales)}</strong>
             </span>
-            <span>
-              Ventas: <strong className="text-ink-primary">{formatCurrency(totals.sales)}</strong>
+            <span className="rounded-md border border-line-subtle bg-surface-elevated/70 px-2.5 py-1 text-ink-secondary">
+              Cobrado:{" "}
+              <strong className="text-ink-primary">{formatCurrency(totals.advance)}</strong>
             </span>
-            <span>
-              Cobrado: <strong className="text-ink-primary">{formatCurrency(totals.advance)}</strong>
-            </span>
-            <span>
+            <span className="rounded-md border border-dashed border-line-diecut/70 bg-accent-soft px-2.5 py-1 text-ink-secondary">
               Saldo:{" "}
-              <strong className="text-brand-700 dark:text-brand-300">
+              <strong className="font-bold text-accent">
                 {formatCurrency(totals.balance)}
               </strong>
             </span>
@@ -250,36 +319,76 @@ export const OrdersManagementPage: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div
+        <StickerCard
+          dieCut
+          tone="critical"
+          padding="sm"
           role="alert"
-          className="rounded-xl border border-dashed border-line-diecut bg-surface-card p-4 text-xs text-ink-secondary"
+          className="flex items-start gap-3"
         >
-          <strong className="text-ink-primary">No se pudieron cargar los pedidos:</strong> {error}
-        </div>
+          <span
+            aria-hidden="true"
+            className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-state-critical-bg text-state-critical-ink"
+          >
+            <AlertCircle className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0 text-xs text-ink-secondary">
+            <strong className="font-bold text-ink-primary">
+              No se pudieron cargar los pedidos:
+            </strong>{" "}
+            {error}
+          </div>
+        </StickerCard>
       )}
 
-      {/* Orders Listing */}
+      {/* Band 3: Orders Listing */}
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4].map((idx) => (
-            <div key={idx} className="h-16 animate-pulse rounded-xl bg-surface-card" />
+            <div
+              key={idx}
+              className="h-16 animate-pulse rounded-sticker border border-line-subtle bg-surface-card"
+            />
           ))}
         </div>
       ) : orders.length === 0 ? (
-        <StickerCard dieCut padding="lg" className="text-center">
-          <p className="text-sm font-bold text-ink-primary">
+        <StickerCard
+          dieCut
+          registrationMarks
+          padding="lg"
+          className="bg-print-grid text-center"
+        >
+          <div className="sticker-badge mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-dashed border-line-diecut/70 bg-accent-soft text-accent">
+            <Inbox className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <p className="mt-3.5 text-sm font-bold text-ink-primary">
             No se encontraron pedidos con los filtros actuales
           </p>
-          <p className="mt-1 text-xs text-ink-muted">
+          <p className="mx-auto mt-1 max-w-md text-xs text-ink-muted">
             Prueba limpiar los filtros o registra un nuevo pedido rápido desde el taller.
           </p>
-          {hasActiveFilters && (
-            <div className="mt-4">
-              <Button type="button" variant="secondary" size="sm" onClick={clearFilters}>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
+            {hasActiveFilters && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={clearFilters}
+                leftIcon={<FilterX className="h-3.5 w-3.5" />}
+              >
                 Mostrar todos los pedidos
               </Button>
-            </div>
-          )}
+            )}
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={() => setQuickOrderOpen(true)}
+              leftIcon={<Plus className="h-3.5 w-3.5" />}
+            >
+              Nuevo Pedido Rápido
+            </Button>
+          </div>
         </StickerCard>
       ) : viewMode === "table" ? (
         <OrdersTable orders={orders} onSelectOrder={(order) => setSelectedOrder(order)} />
@@ -291,7 +400,10 @@ export const OrdersManagementPage: React.FC = () => {
       <OrderDetailModal
         order={selectedOrder}
         onClose={() => setSelectedOrder(null)}
-        onUpdated={(updated) => replaceOrderLocally(updated)}
+        onUpdated={(updated) => {
+          replaceOrderLocally(updated);
+          setSelectedOrder((prev) => (prev?.id === updated.id ? updated : prev));
+        }}
         onDeleted={() => void refetch()}
       />
 

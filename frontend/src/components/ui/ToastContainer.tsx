@@ -3,6 +3,30 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 import { useToast } from "@/hooks/useToast";
 
+const TOAST_VARIANT_STYLES = {
+  error: {
+    container: "border-state-critical-bg bg-state-critical-bg text-state-critical-ink",
+    iconWrap: "bg-state-critical-ink/15 text-state-critical-ink",
+    description: "text-state-critical-ink/85",
+    closeButton: "text-state-critical-ink/75 hover:bg-state-critical-ink/15 hover:text-state-critical-ink",
+    icon: AlertCircle,
+  },
+  success: {
+    container: "border-line-diecut bg-surface-card text-ink-primary",
+    iconWrap: "bg-state-positive-bg text-state-positive-ink",
+    description: "text-ink-secondary",
+    closeButton: "text-ink-muted hover:bg-surface-elevated hover:text-ink-primary",
+    icon: CheckCircle2,
+  },
+  info: {
+    container: "border-dashed border-line-strong bg-surface-card text-ink-primary",
+    iconWrap: "bg-state-info-bg text-state-info-ink",
+    description: "text-ink-secondary",
+    closeButton: "text-ink-muted hover:bg-surface-elevated hover:text-ink-primary",
+    icon: Info,
+  },
+} as const;
+
 export const ToastContainer: React.FC = () => {
   const { toasts, dismissToast } = useToast();
 
@@ -13,12 +37,8 @@ export const ToastContainer: React.FC = () => {
     >
       <AnimatePresence>
         {toasts.map((toast) => {
-          const Icon =
-            toast.variant === "success"
-              ? CheckCircle2
-              : toast.variant === "error"
-              ? AlertCircle
-              : Info;
+          const style = TOAST_VARIANT_STYLES[toast.variant] ?? TOAST_VARIANT_STYLES.info;
+          const Icon = style.icon;
 
           return (
             <motion.div
@@ -26,28 +46,30 @@ export const ToastContainer: React.FC = () => {
               initial={{ opacity: 0, y: 16, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.96 }}
-              className={`pointer-events-auto flex items-start gap-3 rounded-lg border p-3.5 shadow-elevated ${
-                toast.variant === "error"
-                  ? "border-brand-800 bg-brand-950 text-brand-50 dark:border-brand-300 dark:bg-brand-900"
-                  : toast.variant === "success"
-                  ? "border-brand-600 bg-surface-card text-ink-primary"
-                  : "border-line-strong bg-surface-card text-ink-primary"
-              }`}
+              role={toast.variant === "error" ? "alert" : "status"}
+              className={`sticker-badge pointer-events-auto flex items-start gap-3 rounded-sticker border-[1.5px] p-3.5 shadow-elevated transition-shadow duration-fast ease-studio hover:shadow-sticker-hover ${style.container}`}
             >
-              <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+              <span
+                aria-hidden="true"
+                className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${style.iconWrap}`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+              </span>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-bold">{toast.title}</p>
+                <p className="text-xs font-bold tracking-tight">{toast.title}</p>
                 {toast.description && (
-                  <p className="mt-0.5 text-xs opacity-85">{toast.description}</p>
+                  <p className={`mt-0.5 text-xs ${style.description}`}>
+                    {toast.description}
+                  </p>
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => dismissToast(toast.id)}
                 aria-label="Cerrar notificación"
-                className="rounded p-0.5 opacity-70 hover:opacity-100"
+                className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors duration-fast ease-studio focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${style.closeButton}`}
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </motion.div>
           );

@@ -10,23 +10,239 @@
     background-color: var(--surface-canvas);
     color: var(--ink-primary);
     scroll-behavior: smooth;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) var(--surface-canvas);
   }
 
   body {
     background-color: var(--surface-canvas);
     color: var(--ink-primary);
     min-height: 100vh;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition:
+      background-color var(--duration-base) var(--ease-studio),
+      color var(--duration-base) var(--ease-studio);
   }
 
-  /* Custom monochromatic focus ring for WCAG accessibility */
+  ::selection {
+    background-color: var(--selection-bg);
+    color: var(--selection-ink);
+  }
+
+  /* High-contrast monochromatic focus ring (WCAG 2.1 AA 2.4.7 / 2.4.11) */
   :focus-visible {
-    outline: 2px solid var(--border-diecut);
-    outline-offset: 2px;
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* Slim monochromatic WebKit scrollbars driven strictly by semantic tokens */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--surface-canvas);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--border-diecut);
+  }
+}
+
+/* Component primitives placed in @layer components so Tailwind utilities can cleanly override them */
+@layer components {
+  /* Die-cut dashed cutline border for upload & vector zones */
+  .die-cut-zone {
+    border: 2px dashed var(--border-diecut);
+    background-color: var(--surface-card);
+    position: relative;
+  }
+
+  /* Sticker contour badge styling */
+  .sticker-badge {
+    box-shadow: var(--shadow-sticker);
+    transition:
+      transform var(--duration-fast) var(--ease-studio),
+      box-shadow var(--duration-fast) var(--ease-studio);
+  }
+
+  /* Subtle corner-peel hover microinteraction for featured sticker cards */
+  .sticker-peel {
+    position: relative;
+    overflow: hidden;
+    transition:
+      transform var(--duration-base) var(--ease-studio),
+      box-shadow var(--duration-base) var(--ease-studio),
+      border-color var(--duration-base) ease;
+  }
+
+  .sticker-peel::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 0;
+    height: 0;
+    background: var(--peel-flap-bg);
+    box-shadow: var(--shadow-peel-flap);
+    border-top-left-radius: var(--radius-sm);
+    transition:
+      width var(--duration-base) var(--ease-studio),
+      height var(--duration-base) var(--ease-studio);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .sticker-peel::before {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 0;
+    height: 0;
+    background: linear-gradient(135deg, transparent 50%, var(--peel-under-bg) 50%);
+    opacity: 0.22;
+    transition:
+      width var(--duration-base) var(--ease-studio),
+      height var(--duration-base) var(--ease-studio);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .sticker-peel:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-sticker-hover);
+  }
+
+  .sticker-peel:hover::after,
+  .sticker-peel:hover::before {
+    width: 24px;
+    height: 24px;
+  }
+
+  /* Physical die-cut sticker chip (thick white vinyl border + realistic peel drop-shadow) */
+  .sticker-pack-chip {
+    border: 4px solid hsl(var(--sborg-white-hsl));
+    box-shadow:
+      0 1px 0 hsl(var(--sborg-midnight-hsl) / 0.12),
+      0 12px 24px -8px hsl(var(--sborg-midnight-hsl) / 0.36),
+      0 4px 10px -3px hsl(var(--sborg-navy-hsl) / 0.22);
+    transition:
+      transform var(--duration-base) var(--ease-studio),
+      box-shadow var(--duration-base) var(--ease-studio);
+  }
+
+  .sticker-pack-chip:hover {
+    box-shadow:
+      0 1px 0 hsl(var(--sborg-white-hsl)),
+      0 18px 34px -10px hsl(var(--sborg-midnight-hsl) / 0.44),
+      0 8px 18px -6px hsl(var(--sborg-emerald-hsl) / 0.34);
+  }
+
+  /* Animated diagonal vinyl gloss sheen for `Vinilo Brillo` finish */
+  .sticker-gloss-sheen {
+    background: linear-gradient(
+      125deg,
+      transparent 16%,
+      hsl(var(--sborg-white-hsl) / 0.14) 36%,
+      hsl(var(--sborg-white-hsl) / 0.62) 48%,
+      hsl(var(--sborg-white-hsl) / 0.18) 57%,
+      transparent 72%
+    );
+    background-size: 240% 240%;
+    animation: vinyl-gloss-sweep 4.2s var(--ease-studio) infinite;
+  }
+
+  /* Soft silky anti-glare diffuse sheen for `Vinilo Mate` */
+  .sticker-matte-grain {
+    background-image:
+      radial-gradient(hsl(var(--sborg-white-hsl) / 0.14) 0.75px, transparent 0.75px),
+      linear-gradient(
+        145deg,
+        hsl(var(--sborg-white-hsl) / 0.1) 0%,
+        transparent 55%,
+        hsl(var(--sborg-midnight-hsl) / 0.06) 100%
+      );
+    background-size: 6px 6px, 100% 100%;
+  }
+
+  /* Tactile raised UV ink emboss bevel for `DTF UV` */
+  .sticker-dtf-relief {
+    box-shadow:
+      inset 0 2px 2px hsl(var(--sborg-white-hsl) / 0.48),
+      inset 0 -2px 4px hsl(var(--sborg-midnight-hsl) / 0.32),
+      0 8px 18px -6px hsl(var(--sborg-midnight-hsl) / 0.42);
+  }
+}
+
+@keyframes vinyl-gloss-sweep {
+  0% {
+    background-position: 130% -30%;
+  }
+  45% {
+    background-position: -30% 130%;
+  }
+  100% {
+    background-position: -30% 130%;
   }
 }
 
 @layer utilities {
+  /* Test Surfaces for `Transparente` Sticker Simulator (100% Sborg token-driven) */
+  .surface-test-laptop {
+    background-color: hsl(var(--darkroom-mat-hsl));
+    background-image:
+      repeating-linear-gradient(
+        90deg,
+        hsl(var(--sborg-white-hsl) / 0.025) 0px,
+        hsl(var(--sborg-white-hsl) / 0.025) 1px,
+        transparent 1px,
+        transparent 3px
+      ),
+      linear-gradient(
+        135deg,
+        hsl(var(--darkroom-mat-hsl)) 0%,
+        hsl(var(--sborg-midnight-hsl)) 48%,
+        hsl(var(--darkroom-elevated-hsl)) 100%
+      );
+  }
+
+  .surface-test-thermos {
+    background-color: hsl(var(--brand-100-hsl));
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--brand-200-hsl) / 0.75) 0%,
+      hsl(var(--brand-50-hsl)) 26%,
+      hsl(var(--sborg-white-hsl)) 45%,
+      hsl(var(--brand-50-hsl)) 72%,
+      hsl(var(--brand-200-hsl) / 0.85) 100%
+    );
+  }
+
+  .surface-test-glass {
+    background-color: var(--checker-b);
+    background-image:
+      linear-gradient(
+        128deg,
+        hsl(var(--sborg-emerald-hsl) / 0.14) 0%,
+        hsl(var(--sborg-white-hsl) / 0.48) 32%,
+        transparent 52%,
+        hsl(var(--sborg-white-hsl) / 0.28) 76%,
+        hsl(var(--brand-200-hsl) / 0.22) 100%
+      ),
+      linear-gradient(45deg, var(--checker-a) 25%, transparent 25%),
+      linear-gradient(-45deg, var(--checker-a) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, var(--checker-a) 75%),
+      linear-gradient(-45deg, transparent 75%, var(--checker-a) 75%);
+    background-size: 100% 100%, 16px 16px, 16px 16px, 16px 16px, 16px 16px;
+    background-position: 0 0, 0 0, 0 8px, 8px -8px, -8px 0;
+  }
+
   /* Subtle print-sheet dot matrix background */
   .bg-print-grid {
     background-image: radial-gradient(var(--grid-dot-color) 1.25px, transparent 1.25px);
@@ -45,86 +261,51 @@
     background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   }
 
-  /* Die-cut dashed cutline border */
-  .die-cut-zone {
-    border: 2px dashed var(--border-diecut);
-    background-color: var(--surface-card);
-    position: relative;
+  /* Precision prepress cutting-mat technical grid (minor 20px + major 100px) */
+  .bg-cutting-mat {
+    background-color: hsl(var(--darkroom-mat-hsl));
+    background-image:
+      linear-gradient(to right, var(--darkroom-grid-major) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--darkroom-grid-major) 1px, transparent 1px),
+      linear-gradient(to right, var(--darkroom-grid-minor) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--darkroom-grid-minor) 1px, transparent 1px);
+    background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
   }
 
-  /* Sticker contour badge styling */
-  .sticker-badge {
-    box-shadow: var(--shadow-sticker);
-    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  /* High-contrast dark transparency checkerboard for White Ink & PNG alpha inspection */
+  .bg-darkroom-checker {
+    background-color: var(--darkroom-checker-b);
+    background-image:
+      linear-gradient(45deg, var(--darkroom-checker-a) 25%, transparent 25%),
+      linear-gradient(-45deg, var(--darkroom-checker-a) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, var(--darkroom-checker-a) 75%),
+      linear-gradient(-45deg, transparent 75%, var(--darkroom-checker-a) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  }
+}
+
+/* Respect user OS motion preferences (WCAG 2.1 AAA 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
   }
 
-  /* Subtle corner-peel hover microinteraction for featured sticker cards */
-  .sticker-peel {
-    position: relative;
-    overflow: hidden;
-    transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-      box-shadow 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-      border-color 0.24s ease;
-  }
-
+  body,
+  .sticker-badge,
+  .sticker-pack-chip,
+  .sticker-peel,
+  .sticker-peel::before,
   .sticker-peel::after {
-    content: "";
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    width: 0;
-    height: 0;
-    background: var(--peel-flap-bg);
-    box-shadow: -3px -3px 8px rgba(12, 25, 54, 0.14);
-    border-top-left-radius: 8px;
-    transition: width 0.26s cubic-bezier(0.22, 1, 0.36, 1),
-      height 0.26s cubic-bezier(0.22, 1, 0.36, 1);
-    pointer-events: none;
-    z-index: 2;
+    transition-duration: 0.01ms !important;
   }
 
-  .sticker-peel::before {
-    content: "";
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    width: 0;
-    height: 0;
-    background: linear-gradient(135deg, transparent 50%, var(--peel-under-bg) 50%);
-    opacity: 0.22;
-    transition: width 0.26s cubic-bezier(0.22, 1, 0.36, 1),
-      height 0.26s cubic-bezier(0.22, 1, 0.36, 1);
-    pointer-events: none;
-    z-index: 1;
+  .sticker-gloss-sheen {
+    animation: none !important;
+    background-position: 42% 42%;
   }
 
   .sticker-peel:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-sticker-hover);
+    transform: none;
   }
-
-  .sticker-peel:hover::after,
-  .sticker-peel:hover::before {
-    width: 24px;
-    height: 24px;
-  }
-}
-
-/* Custom slim monochromatic scrollbars */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--surface-canvas);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--border-diecut);
 }

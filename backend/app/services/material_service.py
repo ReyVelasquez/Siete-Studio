@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Material, Order
+from app.db.models import Material, Order, OrderItem
 from app.schemas.material import (
     MaterialCreateInput,
     MaterialListResponse,
@@ -33,10 +33,22 @@ def _to_material_response(mat: Material, orders_count: int) -> MaterialResponse:
 class MaterialService:
     """Manages CRUD operations on the `materials` table with relational integrity protection."""
 
+    def _count_orders_for_material(self, db: Session, material_id: int) -> int:
+        stmt = (
+            select(func.count(func.distinct(Order.id)))
+            .outerjoin(OrderItem, OrderItem.order_id == Order.id)
+            .where(or_(Order.material_id == material_id, OrderItem.material_id == material_id))
+        )
+        return int(db.scalar(stmt) or 0)
+
     def list_materials(self, db: Session, *, only_active: bool = False) -> MaterialListResponse:
         stmt = (
-            select(Material, func.count(Order.id).label("orders_count"))
-            .outerjoin(Order, Order.material_id == Material.id)
+            select(Material, func.count(func.distinct(Order.id)).label("orders_count"))
+            .outerjoin(OrderItem, OrderItem.material_id == Material.id)
+            .outerjoin(
+                Order,
+                or_(Order.id == OrderItem.order_id, Order.material_id == Material.id),
+            )
             .group_by(Material.id)
             .order_by(Material.id.asc())
         )
@@ -119,8 +131,8 @@ class MaterialService:
                 detail="Violación de restricción de integridad al actualizar el material.",
             ) from exc
 
-        count = db.scalar(select(func.count(Order.id)).where(Order.material_id == mat.id)) or 0
-        return _to_material_response(mat, int(count))
+        count = self._count_orders_for_material(db, mat.id)
+        return _to_material_response(mat, count)
 
     def delete_material(self, db: Session, material_id: int) -> None:
         mat = db.scalar(select(Material).where(Material.id == material_id))
@@ -130,9 +142,7 @@ class MaterialService:
                 detail="Material no encontrado.",
             )
 
-        orders_count = (
-            db.scalar(select(func.count(Order.id)).where(Order.material_id == material_id)) or 0
-        )
+        orders_count = self._count_orders_for_material(db, material_id)
         if orders_count > 0:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

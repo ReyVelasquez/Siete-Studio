@@ -17,30 +17,46 @@ class Base(DeclarativeBase):
 
 
 def resolve_database_url(raw_url: str) -> str:
-    """Resolve relative SQLite paths cleanly against BACKEND_DIR; pass PostgreSQL URLs untouched."""
-    if raw_url.startswith("sqlite:///./"):
-        rel = raw_url[len("sqlite:///./") :]
+    """Normalize cloud PostgreSQL URLs for psycopg v3 and resolve relative SQLite paths cleanly."""
+    cleaned = raw_url.strip()
+
+    if cleaned.startswith("postgres://"):
+        return "postgresql+psycopg://" + cleaned[len("postgres://") :]
+
+    if cleaned.startswith("postgresql://"):
+        return "postgresql+psycopg://" + cleaned[len("postgresql://") :]
+
+    if cleaned.startswith("sqlite:///./"):
+        rel = cleaned[len("sqlite:///./") :]
         abs_path = (BACKEND_DIR / rel).resolve()
         return f"sqlite:///{abs_path.as_posix()}"
-    return raw_url
+
+    return cleaned
 
 
 def build_engine(database_url: str | None = None) -> Engine:
     settings = get_settings()
     url = resolve_database_url(database_url or settings.DATABASE_URL)
 
-    connect_args = {}
-    if url.startswith("sqlite"):
+    is_sqlite = url.startswith("sqlite")
+    connect_args: dict[str, object] = {}
+    engine_kwargs: dict[str, object] = {
+        "future": True,
+    }
+
+    if is_sqlite:
         connect_args["check_same_thread"] = False
+    else:
+        engine_kwargs["pool_pre_ping"] = True
+        engine_kwargs["pool_recycle"] = 300
 
     eng = create_engine(
         url,
         connect_args=connect_args,
-        pool_pre_ping=True,
-        future=True,
+        **engine_kwargs,
     )
 
-    if url.startswith("sqlite"):
+    if is_sqlite:
         @event.listens_for(eng, "connect")
         def _enable_sqlite_fk(dbapi_connection, _connection_record):
             cursor = dbapi_connection.cursor()

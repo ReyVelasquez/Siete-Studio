@@ -20,18 +20,29 @@ export const THEME_CONFIG = {
     locale: "es-BO",
   },
 
-  /** Design token map referencing CSS variables defined in src/styles/tokens.css */
+  /** Design token map referencing 3-tier CSS variables defined in src/styles/tokens.css */
   tokens: {
-    paletteName: "Monochrome Electric Cobalt-Slate",
+    paletteName: "Sborg Studio Palette (#1a1e29 · #132d46 · #01c38e · #ffffff)",
+    baseHueVar: "--brand-hue",
+    wcagTarget: "WCAG 2.1 AA+ (36/36 Light & Dark Pairs Verified)",
     colors: {
       canvas: "var(--surface-canvas)",
       card: "var(--surface-card)",
       elevated: "var(--surface-elevated)",
+      subtle: "var(--surface-subtle)",
+      inverted: "var(--surface-inverted)",
       inkPrimary: "var(--ink-primary)",
       inkSecondary: "var(--ink-secondary)",
       inkMuted: "var(--ink-muted)",
+      inkInverted: "var(--ink-inverted)",
       accent: "var(--accent-primary)",
+      accentHover: "var(--accent-primary-hover)",
+      accentSoft: "var(--accent-soft)",
+      accentInk: "var(--accent-ink)",
+      borderSubtle: "var(--border-subtle)",
+      borderStrong: "var(--border-strong)",
       dieCutBorder: "var(--border-diecut)",
+      focusRing: "var(--focus-ring-color)",
     },
     typography: {
       sans: "var(--font-sans)",
@@ -39,6 +50,7 @@ export const THEME_CONFIG = {
       mono: "var(--font-mono)",
     },
     radii: {
+      xs: "var(--radius-xs)",
       sm: "var(--radius-sm)",
       md: "var(--radius-md)",
       lg: "var(--radius-lg)",
@@ -46,9 +58,11 @@ export const THEME_CONFIG = {
       sticker: "var(--radius-sticker)",
     },
     shadows: {
+      xs: "var(--shadow-xs)",
       card: "var(--shadow-card)",
       elevated: "var(--shadow-elevated)",
       sticker: "var(--shadow-sticker)",
+      stickerHover: "var(--shadow-sticker-hover)",
     },
   },
 
@@ -196,24 +210,30 @@ export const THEME_CONFIG = {
   phase2Modules: [
     {
       id: "enhancer" as const,
-      title: "Mejora de Imagen",
-      badge: "Próximamente · Fase 2",
-      stack: "Python · OpenCV · NumPy",
-      summary: "Escalado inteligente a 300 DPI, eliminación de ruido y calibración de nitidez.",
+      title: "Mejora de Imagen & CMYK",
+      badge: "Estudio de Preprensa",
+      active: true,
+      route: "/dashboard/image-enhancer",
+      stack: "Python · OpenCV · NumPy · CMYK",
+      summary: "Escalado 300 DPI, brillo/contraste/gamma, calibración CMYK y exportación TIFF/PNG.",
     },
     {
       id: "edge_detector" as const,
-      title: "Troquelado IA",
-      badge: "Próximamente · Fase 2",
-      stack: "OpenCV · rembg (U2-Net)",
-      summary: "Detección automática de silueta con IA y trazado vectorial de línea de corte.",
+      title: "Troquelado Vectorial & EPS",
+      badge: "Estudio de Preprensa",
+      active: true,
+      route: "/dashboard/die-cut",
+      stack: "OpenCV · Bézier · EPS 2 Capas",
+      summary: "Troquelado en silueta, círculo o polígono editable estilo Illustrator y exportación .EPS.",
     },
     {
       id: "layout_packer" as const,
       title: "Distribución en Pliego",
-      badge: "Próximamente · Fase 2",
-      stack: "NumPy · 2D Bin Packing",
-      summary: "Acomodo óptimo de múltiples pedidos en pliego minimizando desperdicio.",
+      badge: "Estudio de Preprensa",
+      active: true,
+      route: "/dashboard/die-cut?modo=pliego",
+      stack: "NumPy · 2D Bin Packing · EPS/PDF",
+      summary: "Acomodo óptimo de diseños en pliego o bobina minimizando desperdicio de material.",
     },
   ],
 } as const;
