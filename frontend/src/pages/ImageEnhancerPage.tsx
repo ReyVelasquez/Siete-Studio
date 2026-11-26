@@ -550,11 +550,6 @@ export const ImageEnhancerPage: React.FC = () => {
   const activeItemId = activeDesignItem?.id ?? "";
   const activeMaterial = activeDesignItem?.material ?? activeOrderDetail?.material ?? "";
   const activeSizeDisplay = activeDesignItem?.size_display ?? activeOrderDetail?.size_display ?? "";
-  const activeShape = activeDesignItem?.shape ?? activeOrderDetail?.shape ?? "";
-  const activeQuantity = activeDesignItem?.quantity ?? activeOrderDetail?.quantity ?? 0;
-  const activeVinylGlossMode = activeDesignItem
-    ? activeDesignItem.vinyl_gloss_mode
-    : activeOrderDetail?.vinyl_gloss_mode ?? null;
   const supportsWhiteInk = sourceMode === "order" && supportsWhiteInkMaterial(activeMaterial);
 
   const adjustments = useMemo<EnhanceAdjustments>(() => {

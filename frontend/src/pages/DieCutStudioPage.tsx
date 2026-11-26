@@ -558,10 +558,8 @@ export const DieCutStudioPage: React.FC = () => {
   }, [sourceMode, orderItems, selectedItemId]);
 
   const activeItemId = activeDesignItem?.id ?? "";
-  const activeMaterial = activeDesignItem?.material ?? activeOrder?.material ?? "";
   const activeShape = activeDesignItem?.shape ?? activeOrder?.shape ?? "En su forma";
   const activeSizeDisplay = activeDesignItem?.size_display ?? activeOrder?.size_display ?? "";
-  const activeQuantity = activeDesignItem?.quantity ?? activeOrder?.quantity ?? 0;
 
   const fallbackItemCm = useMemo(
     () => parseItemDimensionsCm(activeDesignItem),

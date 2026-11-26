@@ -330,7 +330,6 @@ export const DieCutVectorCanvas: React.FC<DieCutVectorCanvasProps> = ({
   cutHeightCm,
   targetWidthCm = null,
   targetHeightCm = null,
-  fitMode = "contain_proportional",
   targetSizeDisplay = null,
   whiteBorderMm = 0,
   bleedMm = 0,
