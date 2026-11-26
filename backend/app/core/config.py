@@ -54,11 +54,25 @@ class Settings(BaseSettings):
         description="Firebase service account credentials as a single-line JSON string or Base64-encoded JSON (recommended for cloud).",
     )
     FIREBASE_STORAGE_BUCKET: Optional[str] = None
-    STORAGE_BACKEND: str = Field(
-        default="auto",
-        pattern="^(auto|firebase|local)$",
-        description="Storage backend: firebase, local, or auto (uses Firebase Storage if bucket exists).",
+    CLOUDINARY_CLOUD_NAME: Optional[str] = Field(
+        default=None,
+        description="Cloudinary cloud name (required when STORAGE_BACKEND='cloudinary').",
     )
+    CLOUDINARY_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Cloudinary API key (required when STORAGE_BACKEND='cloudinary').",
+    )
+    CLOUDINARY_API_SECRET: Optional[str] = Field(
+        default=None,
+        description="Cloudinary API secret (required when STORAGE_BACKEND='cloudinary').",
+    )
+    STORAGE_BACKEND: str = Field(
+    default="auto",
+    pattern="^(auto|firebase|cloudinary|local)$",
+    )
+    CLOUDINARY_CLOUD_NAME: str | None = None
+    CLOUDINARY_API_KEY: str | None = None
+    CLOUDINARY_API_SECRET: str | None = None
 
     # Upload & Business Rules
     MAX_UPLOAD_SIZE_MB: int = Field(default=10, ge=1, le=25)

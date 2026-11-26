@@ -1,11 +1,16 @@
-"""Firebase Storage service with optional secure local fallback for Spark-plan dev setups."""
+"""Storage service supporting Firebase Storage, Cloudinary, and secure local fallback."""
 
 from __future__ import annotations
 
+import io
 import logging
 import mimetypes
+import re
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Optional, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from fastapi import HTTPException, status
 
@@ -16,10 +21,12 @@ from app.core.firebase import FirebaseNotConfiguredError, get_storage_bucket
 logger = logging.getLogger(__name__)
 
 LOCAL_UPLOADS_DIR = (BACKEND_DIR / "uploads").resolve()
+CLOUDINARY_ORDERS_FOLDER = "siete-studio/orders"
+CLOUDINARY_ALLOWED_HOST = "res.cloudinary.com"
 
 
 class StorageService:
-    """Encapsulates sticker artwork persistence (Firebase Storage primary, secure local fallback)."""
+    """Encapsulates sticker artwork persistence (Firebase Storage, Cloudinary, or secure local fallback)."""
 
     def _safe_local_path(self, storage_path: str) -> Path:
         """Resolve a local path strictly confined inside backend/uploads/ (blocks path traversal)."""
@@ -33,7 +40,7 @@ class StorageService:
 
     def _should_use_firebase_bucket(self) -> bool:
         settings = get_settings()
-        if settings.STORAGE_BACKEND == "local":
+        if settings.STORAGE_BACKEND in ("local", "cloudinary"):
             return False
         if settings.STORAGE_BACKEND == "firebase":
             return True
@@ -45,14 +52,94 @@ class StorageService:
         except Exception:
             return False
 
+    def _is_cloudinary_url(self, storage_path: str) -> bool:
+        parsed = urlparse(storage_path)
+        return parsed.scheme == "https" and parsed.hostname == CLOUDINARY_ALLOWED_HOST
+
+    def _extract_cloudinary_public_id(self, url: str) -> Optional[str]:
+        """Extract Cloudinary public_id from a standard res.cloudinary.com delivery URL."""
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname != CLOUDINARY_ALLOWED_HOST:
+            return None
+        marker = "/upload/"
+        if marker not in parsed.path:
+            return None
+        tail = parsed.path.split(marker, 1)[1].lstrip("/")
+        tail = re.sub(r"^v\d+/", "", tail)
+        if not tail:
+            return None
+        return str(Path(tail).with_suffix("")).replace("\\", "/")
+
+    def _get_cloudinary_uploader(self) -> Any:
+        """Configure and return cloudinary.uploader when Cloudinary credentials are present."""
+        settings = get_settings()
+        cloud_name = (settings.CLOUDINARY_CLOUD_NAME or "").strip()
+        api_key = (settings.CLOUDINARY_API_KEY or "").strip()
+        api_secret = (settings.CLOUDINARY_API_SECRET or "").strip()
+
+        if not (cloud_name and api_key and api_secret):
+            logger.error(
+                "Storage upload blocked - Cloudinary credentials incomplete "
+                "(CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET)."
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Almacenamiento de imágenes (Cloudinary) no configurado en el servidor.",
+            )
+
+        try:
+            import cloudinary
+            import cloudinary.uploader
+        except ImportError as exc:
+            logger.error("Cloudinary SDK is not installed: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Dependencia de almacenamiento Cloudinary no instalada en el servidor.",
+            ) from exc
+
+        cloudinary.config(
+            cloud_name=cloud_name,
+            api_key=api_key,
+            api_secret=api_secret,
+            secure=True,
+        )
+        return cloudinary.uploader
+
     def upload_order_image(
         self,
         image: ValidatedImageFile,
         *,
         order_number: str,
     ) -> str:
-        """Upload a pre-validated image with UUID filename to Firebase Storage (or local fallback)."""
+        """Upload a pre-validated image to Cloudinary, Firebase Storage, or secure local fallback."""
         settings = get_settings()
+
+        if settings.STORAGE_BACKEND == "cloudinary":
+            uploader = self._get_cloudinary_uploader()
+            try:
+                result = uploader.upload(
+                    io.BytesIO(image.content),
+                    folder=CLOUDINARY_ORDERS_FOLDER,
+                    public_id=Path(image.safe_filename).stem,
+                    resource_type="image",
+                )
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.exception("Error uploading image to Cloudinary for %s.", order_number)
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="No se pudo guardar la imagen del sticker. Intenta nuevamente.",
+                ) from exc
+
+            secure_url = result.get("secure_url") if isinstance(result, dict) else None
+            if not isinstance(secure_url, str) or not secure_url.strip():
+                logger.error("Cloudinary upload response missing secure_url for %s.", order_number)
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="No se pudo obtener la URL pública de la imagen en Cloudinary.",
+                )
+            return secure_url
 
         if self._should_use_firebase_bucket():
             try:
@@ -138,8 +225,44 @@ class StorageService:
         return storage_path
 
     def download_order_image(self, storage_path: str) -> Tuple[bytes, str]:
-        """Download image bytes and content-type from Firebase Storage or local fallback."""
+        """Download image bytes and content-type from Cloudinary, Firebase Storage, or local fallback."""
         settings = get_settings()
+
+        if self._is_cloudinary_url(storage_path):
+            try:
+                req = Request(storage_path, headers={"User-Agent": "SieteStickerStudio/1.0"})
+                with urlopen(req, timeout=30) as resp:
+                    if not self._is_cloudinary_url(resp.geturl()):
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="URL de imagen de Cloudinary inválida.",
+                        )
+                    data = resp.read()
+                    content_type = (
+                        resp.headers.get_content_type()
+                        if resp.headers
+                        else "application/octet-stream"
+                    )
+                    return data, content_type or "application/octet-stream"
+            except HTTPException:
+                raise
+            except HTTPError as exc:
+                if exc.code == 404:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="La imagen asociada al pedido no existe en Storage.",
+                    ) from exc
+                logger.exception("HTTP error downloading image from Cloudinary.")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="No se pudo descargar la imagen del pedido.",
+                ) from exc
+            except URLError as exc:
+                logger.exception("Network error downloading image from Cloudinary.")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="No se pudo descargar la imagen del pedido.",
+                ) from exc
 
         if self._should_use_firebase_bucket():
             try:
@@ -177,6 +300,16 @@ class StorageService:
 
     def delete_order_image(self, storage_path: str) -> None:
         """Best-effort cleanup if a DB write fails after upload or an order/artifact is removed."""
+        if self._is_cloudinary_url(storage_path):
+            public_id = self._extract_cloudinary_public_id(storage_path)
+            if public_id:
+                try:
+                    uploader = self._get_cloudinary_uploader()
+                    uploader.destroy(public_id, resource_type="image")
+                except Exception:
+                    logger.warning("Cleanup failed for Cloudinary object: %s", storage_path)
+            return
+
         if self._should_use_firebase_bucket():
             try:
                 bucket = get_storage_bucket()
