@@ -351,27 +351,38 @@ class OrderService:
         """
         Upload unique item images once per file; clean up already-uploaded blobs if any upload fails.
         When multiple items share the same `ValidatedImageFile` instance (via `image_index`),
-        uploads it to Storage only ONCE so all referencing `order_items` share its `storage_path`.
+        uploads it to Storage only ONCE so all referencing `order_items` share its stored path/URL.
+        Returns a list aligned 1:1 with `images` containing the final persisted path or public URL.
         """
         uploaded_paths: List[str] = []
-        uploaded_ids: set[int] = set()
-        uploaded_storage_paths: set[str] = set()
+        stored_by_id: dict[int, str] = {}
+        stored_by_source_path: dict[str, str] = {}
+        resolved_paths: List[str] = []
         try:
             for image in images:
-                if id(image) in uploaded_ids or (
-                    image.storage_path and image.storage_path in uploaded_storage_paths
-                ):
+                if id(image) in stored_by_id:
+                    resolved_paths.append(stored_by_id[id(image)])
                     continue
-                storage_service.upload_order_image(image, order_number=order_number)
-                uploaded_ids.add(id(image))
-                uploaded_storage_paths.add(image.storage_path)
-                uploaded_paths.append(image.storage_path)
+                if image.storage_path and image.storage_path in stored_by_source_path:
+                    resolved = stored_by_source_path[image.storage_path]
+                    stored_by_id[id(image)] = resolved
+                    resolved_paths.append(resolved)
+                    continue
+                stored_path = (
+                    storage_service.upload_order_image(image, order_number=order_number)
+                    or image.storage_path
+                )
+                stored_by_id[id(image)] = stored_path
+                if image.storage_path:
+                    stored_by_source_path[image.storage_path] = stored_path
+                uploaded_paths.append(stored_path)
+                resolved_paths.append(stored_path)
         except Exception:
             for path in set(uploaded_paths):
                 if path:
                     storage_service.delete_order_image(path)
             raise
-        return uploaded_paths
+        return resolved_paths
 
     def _cleanup_uploaded_images(self, storage_paths: Sequence[str] | set[str]) -> None:
         unique_paths = {p for p in storage_paths if p}
@@ -530,7 +541,7 @@ class OrderService:
             db.add(
                 OrderImage(
                     order_id=order.id,
-                    storage_path=first_image.storage_path,
+                    storage_path=uploaded_paths[0],
                     safe_filename=first_image.safe_filename,
                     original_filename=first_image.original_sanitized_name,
                     content_type=first_image.content_type,
@@ -539,8 +550,8 @@ class OrderService:
             )
 
             # Persist every design item in Master-Detail `order_items`
-            for position, (item_in, (mat_row, shape_row), img_file) in enumerate(
-                zip(payload.items, resolved_catalog, item_images), start=1
+            for position, (item_in, (mat_row, shape_row), img_file, stored_path) in enumerate(
+                zip(payload.items, resolved_catalog, item_images, uploaded_paths), start=1
             ):
                 db.add(
                     OrderItem(
@@ -558,7 +569,7 @@ class OrderService:
                         dimensions=item_in.dimensions,
                         size_display=item_in.size_display,
                         quantity=item_in.quantity,
-                        image_storage_path=img_file.storage_path,
+                        image_storage_path=stored_path,
                         image_safe_filename=img_file.safe_filename,
                         image_original_filename=img_file.original_sanitized_name,
                         image_content_type=img_file.content_type,
@@ -687,7 +698,7 @@ class OrderService:
             db.add(
                 OrderImage(
                     order_id=order.id,
-                    storage_path=first_image.storage_path,
+                    storage_path=uploaded_paths[0],
                     safe_filename=first_image.safe_filename,
                     original_filename=first_image.original_sanitized_name,
                     content_type=first_image.content_type,
@@ -695,8 +706,8 @@ class OrderService:
                 )
             )
 
-            for position, (item_in, (mat_row, shape_row), img_file) in enumerate(
-                zip(payload.items, resolved_catalog, item_images), start=1
+            for position, (item_in, (mat_row, shape_row), img_file, stored_path) in enumerate(
+                zip(payload.items, resolved_catalog, item_images, uploaded_paths), start=1
             ):
                 db.add(
                     OrderItem(
@@ -714,7 +725,7 @@ class OrderService:
                         dimensions=item_in.dimensions,
                         size_display=item_in.size_display,
                         quantity=item_in.quantity,
-                        image_storage_path=img_file.storage_path,
+                        image_storage_path=stored_path,
                         image_safe_filename=img_file.safe_filename,
                         image_original_filename=img_file.original_sanitized_name,
                         image_content_type=img_file.content_type,
@@ -902,7 +913,7 @@ class OrderService:
 
         if variant == "enhanced":
             if target_item and target_item.enhanced_storage_path:
-                safe_name = target_item.enhanced_storage_path.rsplit("/", 1)[-1]
+                safe_name = target_item.enhanced_storage_path.split("?", 1)[0].rsplit("/", 1)[-1]
                 return (
                     order,
                     OrderImageInfo(

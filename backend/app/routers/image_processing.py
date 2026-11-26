@@ -191,7 +191,7 @@ def resolve_item_artwork_asset(item: OrderItem) -> Tuple[bytes, str, str, bool]:
     if enhanced_path and str(enhanced_path).strip():
         clean_enh = str(enhanced_path).strip()
         raw_bytes, content_type = storage_service.download_order_image(clean_enh)
-        filename = clean_enh.rsplit("/", 1)[-1]
+        filename = clean_enh.split("?", 1)[0].rsplit("/", 1)[-1]
         return raw_bytes, content_type, filename, True
 
     orig_path = getattr(item, "image_storage_path", None)
@@ -202,7 +202,10 @@ def resolve_item_artwork_asset(item: OrderItem) -> Tuple[bytes, str, str, bool]:
         )
     clean_orig = str(orig_path).strip()
     raw_bytes, content_type = storage_service.download_order_image(clean_orig)
-    filename = getattr(item, "image_safe_filename", None) or clean_orig.rsplit("/", 1)[-1]
+    filename = (
+        getattr(item, "image_safe_filename", None)
+        or clean_orig.split("?", 1)[0].rsplit("/", 1)[-1]
+    )
     return raw_bytes, content_type, filename, False
 
 
@@ -790,23 +793,26 @@ async def save_enhanced_image_to_order(
     new_filename = f"enhanced_{uuid.uuid4().hex}.png"
     new_storage_path = f"orders/{now.year:04d}/{now.month:02d}/{new_filename}"
 
-    storage_service.upload_binary_artifact(
-        new_storage_path,
-        result.output_bytes,
-        "image/png",
-        metadata={
-            "order_number": order.order_number,
-            "item_id": str(item.id),
-            "item_position": str(item.position),
-            "variant": "enhanced",
-        },
+    stored_enhanced_path = (
+        storage_service.upload_binary_artifact(
+            new_storage_path,
+            result.output_bytes,
+            "image/png",
+            metadata={
+                "order_number": order.order_number,
+                "item_id": str(item.id),
+                "item_position": str(item.position),
+                "variant": "enhanced",
+            },
+        )
+        or new_storage_path
     )
 
     prev_enhanced_path = item.enhanced_storage_path
     try:
         previous_status = order.status
         # Non-destructive: original item.image_storage_path & order.image remain 100% untouched!
-        item.enhanced_storage_path = new_storage_path
+        item.enhanced_storage_path = stored_enhanced_path
         item.prepress_status = "mejorado"
         order.updated_by_user_id = current_user.db_user_id
         order.updated_at = now
@@ -831,7 +837,7 @@ async def save_enhanced_image_to_order(
         db.commit()
     except Exception as exc:
         db.rollback()
-        storage_service.delete_order_image(new_storage_path)
+        storage_service.delete_order_image(stored_enhanced_path)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No se pudo guardar la imagen mejorada en el diseño del pedido.",
@@ -840,7 +846,7 @@ async def save_enhanced_image_to_order(
     # Clean up ONLY a superseded enhanced derivative (NEVER touch original item.image_storage_path)
     if (
         prev_enhanced_path
-        and prev_enhanced_path != new_storage_path
+        and prev_enhanced_path != stored_enhanced_path
         and prev_enhanced_path != item.image_storage_path
     ):
         storage_service.delete_order_image(prev_enhanced_path)
@@ -927,23 +933,26 @@ async def save_uploaded_enhanced_image_to_order(
     new_filename = f"enhanced_{uuid.uuid4().hex}.png"
     new_storage_path = f"orders/{now.year:04d}/{now.month:02d}/{new_filename}"
 
-    storage_service.upload_binary_artifact(
-        new_storage_path,
-        result.output_bytes,
-        "image/png",
-        metadata={
-            "order_number": order.order_number,
-            "item_id": str(item.id),
-            "item_position": str(item.position),
-            "variant": "enhanced_retouched",
-        },
+    stored_enhanced_path = (
+        storage_service.upload_binary_artifact(
+            new_storage_path,
+            result.output_bytes,
+            "image/png",
+            metadata={
+                "order_number": order.order_number,
+                "item_id": str(item.id),
+                "item_position": str(item.position),
+                "variant": "enhanced_retouched",
+            },
+        )
+        or new_storage_path
     )
 
     prev_enhanced_path = item.enhanced_storage_path
     try:
         previous_status = order.status
         # Non-destructive: preserve original client image_storage_path intact
-        item.enhanced_storage_path = new_storage_path
+        item.enhanced_storage_path = stored_enhanced_path
         item.prepress_status = "mejorado"
         order.updated_by_user_id = current_user.db_user_id
         order.updated_at = now
@@ -968,7 +977,7 @@ async def save_uploaded_enhanced_image_to_order(
         db.commit()
     except Exception as exc:
         db.rollback()
-        storage_service.delete_order_image(new_storage_path)
+        storage_service.delete_order_image(stored_enhanced_path)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No se pudo guardar la imagen retocada en el diseño del pedido.",
@@ -976,7 +985,7 @@ async def save_uploaded_enhanced_image_to_order(
 
     if (
         prev_enhanced_path
-        and prev_enhanced_path != new_storage_path
+        and prev_enhanced_path != stored_enhanced_path
         and prev_enhanced_path != item.image_storage_path
     ):
         storage_service.delete_order_image(prev_enhanced_path)
@@ -1425,23 +1434,27 @@ async def export_die_cut_file(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     # Persist anchors + die_cut_config_json + EPS artifact non-destructively onto OrderItem
+    persisted_die_cut_path: Optional[str] = None
     if resolved_order is not None and resolved_item is not None:
         now = datetime.now(timezone.utc)
         new_eps_path: Optional[str] = None
         prev_eps_path = resolved_item.die_cut_eps_path
 
         if payload.export_format == "eps":
-            new_eps_path = f"orders/{now.year:04d}/{now.month:02d}/diecut_{uuid.uuid4().hex}.eps"
-            storage_service.upload_binary_artifact(
-                new_eps_path,
-                out_bytes,
-                "application/postscript",
-                metadata={
-                    "order_number": resolved_order.order_number,
-                    "item_id": str(resolved_item.id),
-                    "item_position": str(resolved_item.position),
-                    "variant": "die_cut_eps",
-                },
+            candidate_eps_path = f"orders/{now.year:04d}/{now.month:02d}/diecut_{uuid.uuid4().hex}.eps"
+            new_eps_path = (
+                storage_service.upload_binary_artifact(
+                    candidate_eps_path,
+                    out_bytes,
+                    "application/postscript",
+                    metadata={
+                        "order_number": resolved_order.order_number,
+                        "item_id": str(resolved_item.id),
+                        "item_position": str(resolved_item.position),
+                        "variant": "die_cut_eps",
+                    },
+                )
+                or candidate_eps_path
             )
 
         try:
@@ -1493,6 +1506,7 @@ async def export_die_cut_file(
                     )
                 )
             db.commit()
+            persisted_die_cut_path = new_eps_path
         except Exception as exc:
             logger.exception(
                 "Error persistiendo artefactos de troquel en order=%s item=%s: %s",
@@ -1517,13 +1531,17 @@ async def export_die_cut_file(
     safe_base = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in base_title)[:60]
     filename = f"{safe_base}-troquel-2capas{ext}"
 
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "X-DieCut-Layers": "2 (Capa_1_Diseno, Capa_2_Corte_CutContour)",
+    }
+    if persisted_die_cut_path:
+        headers["X-DieCut-Storage-Url"] = persisted_die_cut_path
+
     return Response(
         content=out_bytes,
         media_type=media_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-DieCut-Layers": "2 (Capa_1_Diseno, Capa_2_Corte_CutContour)",
-        },
+        headers=headers,
     )
 
 

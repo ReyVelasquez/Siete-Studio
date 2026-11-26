@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import io
+import ipaddress
 import logging
 import mimetypes
 import re
 from pathlib import Path
 from typing import Any, Optional, Tuple
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
+import httpx
 from fastapi import HTTPException, status
 
 from app.core.config import BACKEND_DIR, get_settings
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 LOCAL_UPLOADS_DIR = (BACKEND_DIR / "uploads").resolve()
 CLOUDINARY_ORDERS_FOLDER = "siete-studio/orders"
 CLOUDINARY_ALLOWED_HOST = "res.cloudinary.com"
+_IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif"})
 
 
 class StorageService:
@@ -52,23 +53,98 @@ class StorageService:
         except Exception:
             return False
 
+    def _is_http_url(self, storage_path: str) -> bool:
+        lower = (storage_path or "").strip().lower()
+        return lower.startswith("http://") or lower.startswith("https://")
+
+    def _is_safe_http_url(self, url: str) -> bool:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return False
+        host = parsed.hostname.lower().strip(".")
+        if host in ("localhost", "ip6-localhost", "ip6-loopback") or host.endswith(".local"):
+            return False
+        try:
+            ip = ipaddress.ip_address(host)
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+            ):
+                return False
+        except ValueError:
+            pass
+        return True
+
     def _is_cloudinary_url(self, storage_path: str) -> bool:
         parsed = urlparse(storage_path)
-        return parsed.scheme == "https" and parsed.hostname == CLOUDINARY_ALLOWED_HOST
+        return parsed.scheme in ("http", "https") and parsed.hostname == CLOUDINARY_ALLOWED_HOST
 
-    def _extract_cloudinary_public_id(self, url: str) -> Optional[str]:
-        """Extract Cloudinary public_id from a standard res.cloudinary.com delivery URL."""
+    def _extract_cloudinary_asset(self, url: str) -> Tuple[Optional[str], str]:
+        """Extract `(public_id, resource_type)` from a standard res.cloudinary.com delivery URL."""
         parsed = urlparse(url)
-        if parsed.scheme != "https" or parsed.hostname != CLOUDINARY_ALLOWED_HOST:
-            return None
-        marker = "/upload/"
-        if marker not in parsed.path:
-            return None
-        tail = parsed.path.split(marker, 1)[1].lstrip("/")
+        if parsed.scheme not in ("http", "https") or parsed.hostname != CLOUDINARY_ALLOWED_HOST:
+            return None, "image"
+        match = re.search(r"/(image|raw|video)/upload/(.+)$", parsed.path)
+        if not match:
+            return None, "image"
+        resource_type = match.group(1)
+        tail = match.group(2).lstrip("/")
         tail = re.sub(r"^v\d+/", "", tail)
         if not tail:
-            return None
-        return str(Path(tail).with_suffix("")).replace("\\", "/")
+            return None, resource_type
+        if resource_type == "raw":
+            return tail, "raw"
+        return str(Path(tail).with_suffix("")).replace("\\", "/"), resource_type
+
+    def _download_from_http_url(self, url: str) -> Tuple[bytes, str]:
+        """Download image or artifact bytes from a public HTTP(S) URL (e.g. Cloudinary)."""
+        if not self._is_safe_http_url(url):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="URL de imagen inválida.",
+            )
+        try:
+            resp = httpx.get(
+                url,
+                timeout=30.0,
+                follow_redirects=True,
+                headers={"User-Agent": "SieteStickerStudio/1.0"},
+            )
+        except httpx.HTTPError as exc:
+            logger.exception("Network error downloading image from URL: %s", url)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="No se pudo descargar la imagen del pedido.",
+            ) from exc
+
+        if not self._is_safe_http_url(str(resp.url)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Redirección de URL de imagen inválida.",
+            )
+
+        if resp.status_code == status.HTTP_404_NOT_FOUND:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="La imagen asociada al pedido no existe en Storage.",
+            )
+        if resp.status_code >= 400:
+            logger.error("HTTP %s downloading image from URL: %s", resp.status_code, url)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="No se pudo descargar la imagen del pedido.",
+            )
+
+        raw_ct = resp.headers.get("content-type", "")
+        content_type = raw_ct.split(";", 1)[0].strip() if raw_ct else ""
+        if not content_type or content_type == "application/octet-stream":
+            guessed_type, _ = mimetypes.guess_type(urlparse(str(resp.url)).path)
+            content_type = guessed_type or content_type or "application/octet-stream"
+        return resp.content, content_type
 
     def _get_cloudinary_uploader(self) -> Any:
         """Configure and return cloudinary.uploader when Cloudinary credentials are present."""
@@ -191,6 +267,46 @@ class StorageService:
         """Upload a derived prepress artifact (enhanced PNG, 2-layer EPS, etc.) safely."""
         settings = get_settings()
 
+        if settings.STORAGE_BACKEND == "cloudinary":
+            uploader = self._get_cloudinary_uploader()
+            normalized_ct = (content_type or "").lower().split(";", 1)[0].strip()
+            target_path = Path(storage_path)
+            is_image = normalized_ct.startswith("image/") or (
+                target_path.suffix.lower() in _IMAGE_EXTENSIONS
+            )
+            resource_type = "image" if is_image else "raw"
+            public_id = target_path.stem if is_image else target_path.name
+
+            try:
+                result = uploader.upload(
+                    io.BytesIO(content),
+                    folder=CLOUDINARY_ORDERS_FOLDER,
+                    public_id=public_id,
+                    resource_type=resource_type,
+                )
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.exception(
+                    "Error uploading prepress artifact to Cloudinary: %s", storage_path
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="No se pudo guardar el archivo de preprensa. Intenta nuevamente.",
+                ) from exc
+
+            secure_url = result.get("secure_url") if isinstance(result, dict) else None
+            if not isinstance(secure_url, str) or not secure_url.strip():
+                logger.error(
+                    "Cloudinary upload response missing secure_url for artifact %s.",
+                    storage_path,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="No se pudo obtener la URL pública del archivo en Cloudinary.",
+                )
+            return secure_url
+
         if self._should_use_firebase_bucket():
             try:
                 bucket = get_storage_bucket()
@@ -225,50 +341,18 @@ class StorageService:
         return storage_path
 
     def download_order_image(self, storage_path: str) -> Tuple[bytes, str]:
-        """Download image bytes and content-type from Cloudinary, Firebase Storage, or local fallback."""
+        """Download image bytes and content-type from HTTP(S)/Cloudinary, Firebase Storage, or local fallback."""
         settings = get_settings()
+        clean_path = (storage_path or "").strip()
 
-        if self._is_cloudinary_url(storage_path):
-            try:
-                req = Request(storage_path, headers={"User-Agent": "SieteStickerStudio/1.0"})
-                with urlopen(req, timeout=30) as resp:
-                    if not self._is_cloudinary_url(resp.geturl()):
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="URL de imagen de Cloudinary inválida.",
-                        )
-                    data = resp.read()
-                    content_type = (
-                        resp.headers.get_content_type()
-                        if resp.headers
-                        else "application/octet-stream"
-                    )
-                    return data, content_type or "application/octet-stream"
-            except HTTPException:
-                raise
-            except HTTPError as exc:
-                if exc.code == 404:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="La imagen asociada al pedido no existe en Storage.",
-                    ) from exc
-                logger.exception("HTTP error downloading image from Cloudinary.")
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="No se pudo descargar la imagen del pedido.",
-                ) from exc
-            except URLError as exc:
-                logger.exception("Network error downloading image from Cloudinary.")
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="No se pudo descargar la imagen del pedido.",
-                ) from exc
+        if self._is_http_url(clean_path):
+            return self._download_from_http_url(clean_path)
 
         if self._should_use_firebase_bucket():
             try:
                 bucket = get_storage_bucket()
                 if bucket.exists():
-                    blob = bucket.blob(storage_path)
+                    blob = bucket.blob(clean_path)
                     if blob.exists():
                         blob.reload()
                         data = blob.download_as_bytes()
@@ -288,7 +372,23 @@ class StorageService:
                         detail="No se pudo descargar la imagen del pedido.",
                     ) from exc
 
-        local_file = self._safe_local_path(storage_path)
+        if settings.STORAGE_BACKEND == "cloudinary":
+            cloud_name = (settings.CLOUDINARY_CLOUD_NAME or "").strip()
+            if cloud_name and clean_path:
+                filename = Path(clean_path).name
+                ext = Path(filename).suffix.lower()
+                resource_type = "image" if ext in _IMAGE_EXTENSIONS else "raw"
+                candidate_url = (
+                    f"https://{CLOUDINARY_ALLOWED_HOST}/{cloud_name}/{resource_type}/upload/"
+                    f"{CLOUDINARY_ORDERS_FOLDER}/{filename}"
+                )
+                try:
+                    return self._download_from_http_url(candidate_url)
+                except HTTPException as exc:
+                    if exc.status_code != status.HTTP_404_NOT_FOUND:
+                        raise
+
+        local_file = self._safe_local_path(clean_path)
         if local_file.is_file():
             guessed_type, _ = mimetypes.guess_type(str(local_file))
             return local_file.read_bytes(), guessed_type or "application/octet-stream"
@@ -300,32 +400,34 @@ class StorageService:
 
     def delete_order_image(self, storage_path: str) -> None:
         """Best-effort cleanup if a DB write fails after upload or an order/artifact is removed."""
-        if self._is_cloudinary_url(storage_path):
-            public_id = self._extract_cloudinary_public_id(storage_path)
-            if public_id:
-                try:
-                    uploader = self._get_cloudinary_uploader()
-                    uploader.destroy(public_id, resource_type="image")
-                except Exception:
-                    logger.warning("Cleanup failed for Cloudinary object: %s", storage_path)
+        clean_path = (storage_path or "").strip()
+        if self._is_http_url(clean_path):
+            if self._is_cloudinary_url(clean_path):
+                public_id, resource_type = self._extract_cloudinary_asset(clean_path)
+                if public_id:
+                    try:
+                        uploader = self._get_cloudinary_uploader()
+                        uploader.destroy(public_id, resource_type=resource_type)
+                    except Exception:
+                        logger.warning("Cleanup failed for Cloudinary object: %s", clean_path)
             return
 
         if self._should_use_firebase_bucket():
             try:
                 bucket = get_storage_bucket()
                 if bucket.exists():
-                    blob = bucket.blob(storage_path)
+                    blob = bucket.blob(clean_path)
                     if blob.exists():
                         blob.delete()
             except Exception:
                 pass
 
         try:
-            local_file = self._safe_local_path(storage_path)
+            local_file = self._safe_local_path(clean_path)
             if local_file.is_file():
                 local_file.unlink()
         except Exception:
-            logger.warning("Cleanup failed for storage object: %s", storage_path)
+            logger.warning("Cleanup failed for storage object: %s", clean_path)
 
 
 storage_service = StorageService()
